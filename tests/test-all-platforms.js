@@ -42,6 +42,10 @@
  *   NODE_PATH=/opt/node22/lib/node_modules node tests/test-all-platforms.js --browser chromium
  *   NODE_PATH=/opt/node22/lib/node_modules node tests/test-all-platforms.js --browser chromium,firefox,webkit
  *   NODE_PATH=/opt/node22/lib/node_modules node tests/test-all-platforms.js --screenshots
+ *   node tests/test-all-platforms.js --no-retry     # local debugging: a failed entry is not run again
+ *
+ * A failed entry is run once more in a fresh browser context (FLAKY if the retry passes,
+ * GENUINE if it fails again); see RETRY below and TESTING.md "Retries and flakes".
  *
  * Or use the convenience script:
  *   ./tests/run-tests.sh
@@ -1801,6 +1805,8 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                     const totalQ = platform.virtualized.totalTurns;
                     const failures = [];
                     let sumMs = 0, maxMs = 0, done = 0;
+                    const settled = {};
+                    let maxSettle = 0;
                     for (let from = 0; from < totalQ; from += 25 * stepQ) {
                         const to = Math.min(totalQ, from + 25 * stepQ);
                         const chunk = await page.evaluate(async ([from, to, stepQ, totalQ]) => {
@@ -1818,26 +1824,90 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                                 if (!item) { out.push({ k, err: 'no-item' }); continue; }
                                 const z = document.querySelector('[data-acn-role="zone"]');
                                 z.removeAttribute('data-acn-jump-resolved');
+                                // THE JUMP'S WHOLE COURSE, in order (DEC-066). The busy flag
+                                // covers only the settle loop: Navi clears it, stamps the row,
+                                // and THEN lands it (ciLandSettled -> orbLandIn: up to 4 instant
+                                // writes 350ms apart), and the landing either stamps the row
+                                // again (landed) or clears the stamp and toasts (a failed
+                                // landing). A read at the first poll after busy cleared fell
+                                // inside that landing, so its outcome depended on where a 110ms
+                                // poll fell, which is machine speed (the DEC-025 lesson). The
+                                // verdict is read once the jump is over: a toast, the attribute
+                                // cleared, the landing's second stamp, or 400ms with neither the
+                                // stamp nor the scroller moving; bounded at 5s.
+                                const ev = [];
+                                const scroller = document.querySelector('[data-autoscroll-container="true"]');
+                                let lastChange = 0, lastTop = scroller ? scroller.scrollTop : 0;
+                                const mo = new MutationObserver(recs => {
+                                    for (const m of recs) {
+                                        if (m.type === 'childList') {
+                                            for (const n of m.addedNodes) {
+                                                if (n.getAttribute && n.getAttribute('data-acn-role') === 'toast') {
+                                                    ev.push({ e: 'toast', t: Date.now(), v: (n.textContent || '').slice(0, 60) });
+                                                }
+                                            }
+                                        } else if (m.target === z) {
+                                            const v = z.getAttribute('data-acn-jump-resolved');
+                                            ev.push({ e: v === null ? 'clear' : 'stamp', t: Date.now(), v });
+                                            lastChange = Date.now();
+                                        } else if (m.attributeName === 'data-acn-jumping') {
+                                            ev.push({ e: m.target.getAttribute('data-acn-jumping') === 'true' ? 'busy' : 'idle', t: Date.now() });
+                                        }
+                                    }
+                                });
+                                mo.observe(z, { attributes: true, attributeFilter: ['data-acn-jump-resolved'] });
+                                mo.observe(document.body, { childList: true });
+                                const navPanel = document.querySelector('[data-acn-role="nav-panel"]');
+                                if (navPanel) mo.observe(navPanel, { attributes: true, attributeFilter: ['data-acn-jumping'] });
                                 const t0 = Date.now();
                                 item.click();
-                                let resolved = null, busySeen = false;
+                                let resolved = null, busySeen = false, tFirst = null, settledBy = null;
                                 for (;;) {
-                                    await sleep(110);
+                                    await sleep(tFirst === null ? 110 : 50);
                                     const raw = z.getAttribute('data-acn-jump-resolved');
                                     const busy = !!document.querySelector('[data-acn-jumping="true"]');
                                     if (busy) busySeen = true;
-                                    if (raw !== null && !busy) { resolved = +raw; break; }
-                                    // Failure exits clear busy and never set the attr;
-                                    // 6.5s also bounds a hung jump (hard cap is 5s).
-                                    if (!busy && Date.now() - t0 > 1400) break;
-                                    if (Date.now() - t0 > 6500) break;
+                                    const now = Date.now();
+                                    if (scroller && scroller.scrollTop !== lastTop) { lastTop = scroller.scrollTop; lastChange = now; }
+                                    if (tFirst === null) {
+                                        // The first verdict: busy cleared after a settle loop, or a
+                                        // stamp without one (the fast path).
+                                        if (!busy && (busySeen || raw !== null)) { tFirst = now; lastChange = Math.max(lastChange, now); continue; }
+                                        // Failure exits clear busy and never set the attr;
+                                        // 6.5s also bounds a hung jump (hard cap is 5s).
+                                        if (!busy && now - t0 > 1400) { settledBy = 'no-verdict'; break; }
+                                        if (now - t0 > 6500) { settledBy = 'hung'; break; }
+                                        continue;
+                                    }
+                                    if (busy) { tFirst = null; continue; }   // a newer settle loop: wait for it
+                                    // Since the last idle (or the click, on the fast path):
+                                    let sinceIdle = 0;
+                                    for (let j = 0; j < ev.length; j++) if (ev[j].e === 'idle') sinceIdle = j + 1;
+                                    const after = ev.slice(sinceIdle);
+                                    if (after.some(x => x.e === 'toast')) { settledBy = 'toast'; }
+                                    else if (after.some(x => x.e === 'clear')) { settledBy = 'cleared'; }
+                                    else if (after.filter(x => x.e === 'stamp').length >= 2) { settledBy = 'landed'; }
+                                    else if (now - lastChange >= 400) { settledBy = 'quiet'; }
+                                    else if (now - tFirst >= 5000) { settledBy = 'bound'; }
+                                    if (settledBy) {
+                                        const fin = z.getAttribute('data-acn-jump-resolved');
+                                        resolved = fin === null ? null : +fin;
+                                        break;
+                                    }
                                 }
+                                mo.disconnect();
                                 // Jump duration BEFORE the forensics probe: the rAF
                                 // sample below costs ~160ms healthy and up to 3s
                                 // throttled, and it must not inflate the duration it
                                 // annotates — ms feeds the failure line AND the budget
-                                // assertion's avg/max (Codex P2 on this PR).
-                                const ms = Date.now() - t0;
+                                // assertion's avg/max (Codex P2 on this PR). It ends at
+                                // the first verdict, as before DEC-066; the landing's
+                                // settling after it is reported, never budgeted.
+                                const ms = (tFirst !== null ? tFirst : Date.now()) - t0;
+                                const settleMs = tFirst !== null ? Date.now() - tFirst : 0;
+                                // The course of the jump, for the failure line: each event
+                                // with its ms from the click.
+                                const course = ev.map(x => `${x.e}${x.v !== undefined && x.v !== null ? '=' + x.v : ''}@${x.t - t0}`).join(' ');
                                 // Environment forensics, failed jumps only. A null here
                                 // is usually the product's own honest give-up (settle cap
                                 // x iteration cap), and on a degraded CI host that means
@@ -1861,7 +1931,7 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                                         setTimeout(() => res(-1), 3000);
                                     });
                                 }
-                                out.push({ k, resolved, busySeen, vis, raf10,
+                                out.push({ k, resolved, busySeen, vis, raf10, settledBy, settleMs, course,
                                            itemText: (item.textContent || '').slice(0, 30),
                                            idxStatus: z.getAttribute('data-acn-index-status'),
                                            ms });
@@ -1872,12 +1942,17 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                             done++;
                             const expect = 2 * r.k;
                             sumMs += r.ms || 0; if ((r.ms || 0) > maxMs) maxMs = r.ms;
+                            if (!r.err) {
+                                settled[r.settledBy] = (settled[r.settledBy] || 0) + 1;
+                                if (r.settleMs > maxSettle) maxSettle = r.settleMs;
+                            }
                             if (r.err || r.resolved !== expect) {
                                 failures.push(`Q${r.k + 1}: expected row ${expect}, got ` +
                                               `${r.err || r.resolved} busySeen=${r.busySeen} idx=${r.idxStatus} ` +
                                               `"${r.itemText}" (${r.ms}ms` +
                                               (r.vis !== null && r.vis !== undefined
-                                                  ? `, vis=${r.vis}, raf10=${r.raf10}ms` : '') + `)`);
+                                                  ? `, vis=${r.vis}, raf10=${r.raf10}ms` : '') + `)` +
+                                              (r.err ? '' : ` settled=${r.settledBy}+${r.settleMs}ms course=[${r.course}]`));
                             }
                         }
                     }
@@ -1885,7 +1960,9 @@ async function testPlatform(page, platform, scriptContent, screenshotOpts) {
                         failures.length === 0 && done > 0,
                         failures.length
                             ? `${failures.length}/${done} failed — ` + failures.slice(0, 5).join(' | ')
-                            : `${done} jumps, all exact; avg ${Math.round(sumMs / done)}ms, max ${maxMs}ms`);
+                            : `${done} jumps, all exact; avg ${Math.round(sumMs / done)}ms, max ${maxMs}ms; ` +
+                              `read after the jump settled (${Object.keys(settled).sort().map(k => `${k} ${settled[k]}`).join(', ')}; ` +
+                              `at most ${maxSettle}ms after the first verdict)`);
                     assert('ACCEPTANCE: typical jump within budget',
                         done > 0 && (sumMs / done) <= 1500 && maxMs <= 6500,
                         `avg ${Math.round(sumMs / done)}ms (<=1500), max ${maxMs}ms (<=6500)`);
@@ -3064,18 +3141,23 @@ async function runTestsOnEngine(engineKey, scriptContent, captureScreenshots) {
         ? PLATFORMS.filter(p => p.name.toLowerCase().includes(pFilter.toLowerCase()))
         : PLATFORMS;
 
-    const allResults = [];
-    for (const platform of selected) {
+    // Browsers this engine run launched for retries (a retry relaunches only when the
+    // first run left the browser disconnected); all are closed at the end.
+    const extraBrowsers = [];
+    let retryBrowser = browser;
+    let genuineCount = 0;
+
+    async function runEntry(pg, platform, attempt) {
         // The "Testing X..." write flushes BEFORE the entry runs, so on a
         // streaming CI log a wedged job's tail names the entry it is stuck in.
         // Per-entry wall clock decomposes a slow job from its log alone: the
         // 2026-07-30 webkit/macos incident burned 40 minutes against a
         // 6-minute green with nothing in the log saying where.
-        process.stdout.write(`  Testing ${platform.name}... `);
+        process.stdout.write(`  Testing ${platform.name}${attempt > 1 ? ' (retry, fresh context)' : ''}... `);
         const entryT0 = Date.now();
-        const result = await testPlatform(page, platform, scriptContent, screenshotOpts);
+        const result = await testPlatform(pg, platform, scriptContent, screenshotOpts);
         result.elapsedMs = Date.now() - entryT0;
-        allResults.push(result);
+        retrySelfTestFault(result, platform, selected, attempt);
 
         const secs = (result.elapsedMs / 1000).toFixed(1) + 's';
         const failCount = result.tests.filter(t => t.status === 'FAIL').length;
@@ -3084,12 +3166,234 @@ async function runTestsOnEngine(engineKey, scriptContent, captureScreenshots) {
         } else {
             console.log(`FAIL (${failCount} failed, ${secs})`);
         }
+        return result;
     }
 
-    await context.close();
-    await browser.close();
+    const allResults = [];
+    for (const platform of selected) {
+        // The storage this entry STARTS from. The context is shared across entries, so
+        // localStorage and cookies written by earlier entries on the same origin are part
+        // of the first run's conditions (Navi's _acnv10 settings, the lastActiveOrg
+        // cookie). The retry's fresh context is seeded with this snapshot, so a failure
+        // caused by carried state (a returning-user bug) fails the retry too instead of
+        // passing on empty storage as FLAKY (verifier, DEC-066).
+        let startState = null;
+        try { startState = await context.storageState(); } catch (e) { startState = null; }
+        const first = await runEntry(page, platform, 1);
+        if (first.passed) { allResults.push(first); continue; }
+
+        const firstFails = failedTests(first);
+        if (!RETRY.enabled || genuineCount >= RETRY.genuineCap) {
+            // No retry: the failure stands as it is, and the log says why.
+            const why = !RETRY.enabled
+                ? '--no-retry was given'
+                : `${genuineCount} entries already failed twice on ${engine.name} in this run, so a code issue is likely`;
+            console.log(`  [retry] ${platform.name}: not retried (${why})`);
+            first.retry = { verdict: 'NOT RETRIED', why, first: { failures: firstFails, elapsedMs: first.elapsedMs } };
+            allResults.push(first);
+            continue;
+        }
+
+        // THE RETRY (the owner, 2026-11-21; DEC-066). Once, announced, in a fresh
+        // browser context: the first run's page, routes and timers are not reused (its
+        // storage is, as it stood before the first run: startState above), and a browser
+        // the first run left disconnected is relaunched.
+        console.log(`  [retry] ${platform.name}: ${firstFails.length} test(s) failed on the first run; ` +
+                    `running the entry once more in a fresh browser context`);
+        for (const t of firstFails) console.log(`          first run ✗ ${t.testName}: ${t.detail}`);
+        let second;
+        let ctx2 = null;
+        try {
+            if (!retryBrowser.isConnected()) {
+                console.log(`  [retry] ${engine.name} was disconnected after the first run; relaunching it for the retry`);
+                retryBrowser = await launchBrowser(engineKey);
+                extraBrowsers.push(retryBrowser);
+            }
+            ctx2 = await retryBrowser.newContext(startState ? { storageState: startState } : {});
+            const page2 = await ctx2.newPage();
+            second = await runEntry(page2, platform, 2);
+        } catch (err) {
+            second = { name: platform.name, passed: false, screenshots: [], elapsedMs: 0,
+                       tests: [{ testName: 'Retry could not run', status: 'FAIL',
+                                 detail: String(err && err.message || err).split('\n')[0] }] };
+        } finally {
+            if (ctx2) { try { await ctx2.close(); } catch (e) { /* the browser may be gone */ } }
+        }
+
+        // FLAKY means the SAME tests passed on the retry, not that the retry was green: a
+        // first-run failure the retry never asserted (a block skipped by a condition, an
+        // evaluate that took another branch) has not passed anywhere (verifier, DEC-066).
+        // The two failure-only assertions are exempt: they exist only when they fail.
+        if (second.passed) {
+            const failureOnly = n => n === 'No runtime errors' || n.indexOf('FIXTURE PRESENCE: ') === 0;
+            const vanished = firstFails.filter(t => !failureOnly(t.testName) &&
+                !second.tests.some(s => s.testName === t.testName && s.status === 'PASS'));
+            if (vanished.length) {
+                second.tests.push({ testName: 'RETRY: every first-run failure passes on the retry', status: 'FAIL',
+                                    detail: `not asserted on the retry: ${vanished.map(t => t.testName).join(' | ')}` });
+                second.passed = false;
+            }
+        }
+        const secondFails = failedTests(second);
+        const sameTwice = !second.passed && sameFailures(firstFails, secondFails);
+        second.retry = {
+            verdict: second.passed ? 'FLAKY' : 'GENUINE',
+            deterministic: sameTwice,
+            first:  { failures: firstFails,  elapsedMs: first.elapsedMs },
+            second: { failures: secondFails, elapsedMs: second.elapsedMs },
+        };
+        if (second.passed) {
+            console.log(`  [retry] ${platform.name}: FLAKY: the retry passed; the first run's failure is reported as a flake`);
+        } else {
+            genuineCount++;
+            console.log(`  [retry] ${platform.name}: GENUINE: failed on both runs` +
+                        (sameTwice ? ' (deterministic: the same assertions with the same values twice in a row)' : ''));
+        }
+        allResults.push(second);
+    }
+
+    try { await context.close(); } catch (e) { /* the browser may be gone */ }
+    try { await browser.close(); } catch (e) { /* the browser may be gone */ }
+    for (const b of extraBrowsers) { try { await b.close(); } catch (e) { /* already closed */ } }
 
     return { engineName: engine.name, skipped: false, results: allResults };
+}
+
+// ── The retry (the owner, 2026-11-21; DEC-066; TESTING.md "Retries and flakes") ──
+//
+// An entry with a failed test is run ONCE more, in a fresh browser context. Passes the
+// second time: FLAKY, the run can still exit 0, and the flake is reported three ways
+// (both runs' failure lines in the log, a ::warning annotation, tests/output/flaky.json).
+// Fails again: GENUINE, exit 1, both runs' failures printed. Never silent, never twice.
+// --no-retry turns it off for local debugging. After RETRY.genuineCap entries have
+// failed twice on one engine, the rest are not retried: a code issue is likely, and
+// retrying every entry of a broken build would double the job for nothing.
+const RETRY = {
+    enabled: !process.argv.includes('--no-retry'),
+    genuineCap: 3,
+    // More than this many FLAKY entries on one engine fails the run anyway: a flake storm is a signal,
+    // not noise (verifier hole 5, the orchestrator's choice, 2026-11-21).
+    flakyCap: 3,
+};
+
+function failedTests(result) {
+    return result.tests.filter(t => t.status === 'FAIL').map(t => ({ testName: t.testName, detail: String(t.detail) }));
+}
+
+// The same assertions with the same values on both runs: deterministic, so the
+// verdict says so. Durations are masked first ("668ms", "+359ms", "@643", "57.0s"):
+// they differ on every run, while the values that matter (expected row 122, got 124)
+// do not.
+function maskDurations(s) {
+    return String(s).replace(/\d+(?:\.\d+)?m?s\b/g, '#ms').replace(/@\d+/g, '@#');
+}
+function sameFailures(a, b) {
+    if (a.length !== b.length) return false;
+    const key = t => t.testName + '\u0000' + maskDurations(t.detail);
+    const ka = a.map(key).sort(), kb = b.map(key).sort();
+    return ka.every((k, i) => k === kb[i]);
+}
+
+// The timing readings a failure line carries: the acceptance sweep's vis=/raf10=
+// forensics (DEC-036), taken only on a failed jump.
+function timingReadings(detail) {
+    const out = [];
+    const re = /vis=(\w+), raf10=(-?\d+)ms/g;
+    let m;
+    while ((m = re.exec(String(detail))) !== null) out.push(`vis=${m[1]} raf10=${m[2]}ms`);
+    return out;
+}
+
+// ACN_RETRY_SELFTEST: the retry's own self-test, and its only reader is this function.
+// It plants a failure in the first selected entry after the entry ran, so the retry,
+// the verdicts, the annotations and flaky.json can be shown without a real flake:
+//   first:  run 1 fails, the same test passes on the retry -> FLAKY, exit 0
+//   twice:  both runs fail, with different values          -> GENUINE, exit 1
+//   same:   both runs fail identically                     -> GENUINE (deterministic), exit 1
+//   vanish: run 1 fails, the retry never asserts that test -> GENUINE, exit 1
+// Refused in CI (main() exits 2 if it is set there), so it can never turn a CI run green
+// or red by itself.
+const RETRY_SELFTEST = process.env.ACN_RETRY_SELFTEST || '';
+function retrySelfTestFault(result, platform, selected, attempt) {
+    if (!RETRY_SELFTEST || platform !== selected[0]) return;
+    if (RETRY_SELFTEST === 'vanish' && attempt !== 1) return;
+    if (RETRY_SELFTEST === 'first' && attempt !== 1) {
+        result.tests.push({ testName: 'SELFTEST: planted failure', status: 'PASS', detail: 'passes on the retry' });
+        return;
+    }
+    const detail = RETRY_SELFTEST === 'same'
+        ? 'planted by ACN_RETRY_SELFTEST=same (vis=visible, raf10=999ms)'
+        : `planted by ACN_RETRY_SELFTEST=${RETRY_SELFTEST} on run ${attempt} (vis=visible, raf10=${attempt === 1 ? 625 : 640}ms)`;
+    result.tests.push({ testName: 'SELFTEST: planted failure', status: 'FAIL', detail });
+    result.passed = false;
+}
+
+// GitHub workflow-command escaping: the message part of ::warning/::error.
+function ghEscape(s) {
+    return String(s).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+}
+
+// The annotations and tests/output/flaky.json (TESTING.md "Retries and flakes").
+// flaky.json is rewritten on every run, so it never carries an earlier run's flakes.
+function reportRetries(engineResults) {
+    const flaky = [], genuine = [];
+    for (const e of engineResults) {
+        if (e.skipped) continue;
+        for (const r of e.results) {
+            if (!r.retry || !r.retry.second) continue;
+            if (r.retry.verdict === 'FLAKY') {
+                for (const t of r.retry.first.failures) {
+                    const timing = timingReadings(t.detail);
+                    flaky.push({ engine: e.engineKey, platform: r.name, test: t.testName,
+                                 firstRun: t.detail, secondRun: 'passed',
+                                 timing: timing.length ? timing.join(', ') : null,
+                                 elapsedMs: [r.retry.first.elapsedMs, r.retry.second.elapsedMs] });
+                }
+            } else {
+                genuine.push({ engine: e.engineKey, platform: r.name, deterministic: r.retry.deterministic,
+                               first: r.retry.first.failures, second: r.retry.second.failures });
+            }
+        }
+    }
+
+    for (const f of flaky) {
+        const timing = (f.timing || 'no vis/raf10 reading on this line (only a failed jump takes one)') +
+            `; entry ${(f.elapsedMs[0] / 1000).toFixed(1)}s on the first run, ${(f.elapsedMs[1] / 1000).toFixed(1)}s on the retry`;
+        console.log(`::warning title=Flaky test::${ghEscape(`${f.platform} :: ${f.test}: first run: ${f.firstRun}; timing: ${timing}`)}`);
+    }
+    // Every test that fails the run gets an error annotation too, so a re-run that passes
+    // can name the test in the flake log (.github/workflows/ci-rerun.yml).
+    for (const e of engineResults) {
+        if (e.skipped) continue;
+        for (const r of e.results) {
+            for (const t of r.tests) {
+                if (t.status !== 'FAIL') continue;
+                const timing = timingReadings(t.detail);
+                console.log(`::error title=Test failed::${ghEscape(`${r.name} :: ${t.testName}: ${t.detail}` +
+                    (timing.length ? `; timing: ${timing.join(', ')}` : ''))}`);
+            }
+        }
+    }
+
+    const outDir = path.join(__dirname, 'output');
+    const env = process.env;
+    const record = {
+        schema: 1,
+        generatedAt: new Date().toISOString(),
+        host: { platform: process.platform, arch: process.arch, cpus: require('os').cpus().length },
+        ci: env.GITHUB_ACTIONS ? { repository: env.GITHUB_REPOSITORY || null, runId: env.GITHUB_RUN_ID || null,
+                                   runAttempt: env.GITHUB_RUN_ATTEMPT || null, job: env.GITHUB_JOB || null } : null,
+        retry: RETRY.enabled ? 'on' : 'off (--no-retry)',
+        flaky,
+        genuine,
+    };
+    try {
+        fs.mkdirSync(outDir, { recursive: true });
+        fs.writeFileSync(path.join(outDir, 'flaky.json'), JSON.stringify(record, null, 2) + '\n');
+    } catch (err) {
+        console.log(`  (could not write tests/output/flaky.json: ${err.message})`);
+    }
+    return { flaky, genuine };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -3097,6 +3401,17 @@ async function runTestsOnEngine(engineKey, scriptContent, captureScreenshots) {
 async function main() {
     const browsers = parseBrowserArg();
     const captureScreenshots = shouldCaptureScreenshots();
+
+    if (RETRY_SELFTEST) {
+        if (process.env.CI || process.env.GITHUB_ACTIONS) {
+            console.error('ERROR: ACN_RETRY_SELFTEST is the retry\'s local self-test and is refused in CI.');
+            process.exit(2);
+        }
+        if (['first', 'twice', 'same', 'vanish'].indexOf(RETRY_SELFTEST) === -1) {
+            console.error(`ERROR: ACN_RETRY_SELFTEST must be first, twice, same or vanish (got "${RETRY_SELFTEST}").`);
+            process.exit(2);
+        }
+    }
 
     console.log('');
     console.log('========================================');
@@ -3106,6 +3421,8 @@ async function main() {
     console.log(`  Browsers: ${browsers.map(b => BROWSER_ENGINES[b].name).join(', ')}`);
     console.log(`  Platform: ${process.platform} (${process.arch})`);
     if (captureScreenshots) console.log('  Screenshots: ENABLED');
+    console.log(`  Retry:    ${RETRY.enabled ? 'once per failed entry, in a fresh browser context (--no-retry turns it off)' : 'off (--no-retry)'}`);
+    if (RETRY_SELFTEST) console.log(`  SELFTEST: ACN_RETRY_SELFTEST=${RETRY_SELFTEST} plants a failure in the first entry`);
     console.log('========================================');
     console.log('');
 
@@ -3156,6 +3473,21 @@ async function main() {
                 if (test.status === 'PASS') grandTotalPassed++;
                 else grandTotalFailed++;
             }
+            // The tests above are the retry's when there was one; the first run's
+            // failures are printed here, so both runs' lines are in the report.
+            if (result.retry) {
+                const rt = result.retry;
+                const label = rt.verdict === 'FLAKY' ? 'the first run failed, the retry passed'
+                    : rt.verdict === 'GENUINE' ? 'failed on both runs' +
+                          (rt.deterministic ? ' (deterministic: the same assertions with the same values)' : '')
+                    : rt.why;
+                console.log(`    [${rt.verdict}] ${label}`);
+                // NOT RETRIED: the tests above ARE the first run.
+                if (rt.second) for (const t of rt.first.failures) console.log(`      first run \u2717 ${t.testName}: ${t.detail}`);
+                if (rt.verdict === 'GENUINE') {
+                    for (const t of rt.second.failures) console.log(`      retry     \u2717 ${t.testName}: ${t.detail}`);
+                }
+            }
         }
     }
 
@@ -3172,8 +3504,20 @@ async function main() {
     console.log(`  Engines:   ${enginesRun.length} tested, ${enginesSkipped} skipped (${engineResults.length} total)`);
     console.log(`  Platforms: ${platformsPassed} passed, ${platformsFailed} failed (${allPlatformResults.length} total)`);
     console.log(`  Tests:     ${grandTotalPassed} passed, ${grandTotalFailed} failed (${grandTotalTests} total)`);
+    const retried = allPlatformResults.filter(r => r.retry && r.retry.second);
+    const nFlaky = retried.filter(r => r.retry.verdict === 'FLAKY').length;
+    const notRetried = allPlatformResults.filter(r => r.retry && r.retry.verdict === 'NOT RETRIED').length;
+    console.log(`  Retries:   ${retried.length} entr${retried.length === 1 ? 'y' : 'ies'} retried: ` +
+                `${nFlaky} FLAKY (passed on the retry), ${retried.length - nFlaky} GENUINE (failed twice)` +
+                (notRetried ? `; ${notRetried} failed entr${notRetried === 1 ? 'y' : 'ies'} not retried` : ''));
+    for (const r of retried) console.log(`             ${r.retry.verdict}: ${r.name}`);
     console.log('========================================');
     console.log('');
+    const flakes = reportRetries(engineResults);
+    if (flakes.flaky.length) {
+        console.log(`  ${flakes.flaky.length} flaky test(s) recorded in tests/output/flaky.json and annotated (::warning).`);
+        console.log('');
+    }
 
     // ── Generate SCREENSHOTS.md if screenshots were captured ──────────────
     if (captureScreenshots) {
@@ -3216,6 +3560,16 @@ async function main() {
 
     // Fail if any tests failed or if ALL engines were skipped
     if (grandTotalFailed > 0) process.exit(1);
+    const flakyByEngine = {};
+    for (const e of engineResults) {
+        if (e.skipped) continue;
+        flakyByEngine[e.engineKey] = e.results.filter(r => r.retry && r.retry.verdict === 'FLAKY').length;
+    }
+    const storm = Object.keys(flakyByEngine).filter(k => flakyByEngine[k] > RETRY.flakyCap);
+    if (storm.length) {
+        for (const k of storm) console.log(`::error title=Too many flaky entries::${k}: ${flakyByEngine[k]} entries passed only on the retry (more than ${RETRY.flakyCap}): failing the run`);
+        process.exit(1);
+    }
     if (enginesRun.length === 0) {
         console.error('ERROR: No browser engines were available to test.');
         process.exit(2);

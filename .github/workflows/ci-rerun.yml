@@ -1,0 +1,216 @@
+name: CI re-run and flake log
+
+# The owner, 2026-11-21 (DEC-066): "we need a way that we can retry ... if it's not a code issue, if it's a GitHub runner
+# or a timeout issue or anything else ... if it keeps happening, then, it might be a code issue". Two parts:
+#   1. A run of "Cross-Platform Tests" that fails on its FIRST attempt has its failed jobs re-run once (ci-ok with
+#      them, since it needs them); ci-ok judges each job by its newest attempt. Never a second time: a run whose
+#      attempt 2 fails stays red for a human, and nothing more is posted.
+#   2. A run that ends green after a failure, or whose jobs annotated a flaky test (the suite's or the probe lanes'
+#      own retry, TESTING.md "Retries and flakes"), is recorded in ONE issue, "CI flake log" (label ci-flake): one
+#      comment per event, so a flake that keeps coming back shows as repeated comments.
+# This workflow never checks out or runs the tested code: it only calls GitHub's API. The annotation text it copies
+# into the issue was printed by the tested code, so it is treated as data: passed through jq, quoted in a code block,
+# never evaluated. workflow_run only fires for a workflow file on the default branch, so this works once merged.
+
+on:
+  workflow_run:
+    workflows: ["Cross-Platform Tests"]
+    types: [completed]
+
+permissions: {}
+
+# One at a time per tested run, so the re-run's own completion event (if GitHub sends one) waits for this job and
+# then finds the comments already posted.
+concurrency:
+  group: ci-rerun-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  rerun-and-log:
+    name: re-run once, log flakes
+    # Only runs of this repository's own branches: a fork PR's code writes the annotations this job quotes.
+    if: >-
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      ((github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1) ||
+      github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    # The re-run is waited for here (a suite job takes 6-10 minutes; the cap is 30), so this job can log its result.
+    timeout-minutes: 60
+    permissions:
+      actions: write    # gh run rerun
+      checks: read      # the jobs' annotations
+      issues: write     # the "CI flake log" issue and its label
+    steps:
+      - name: Re-run the failed jobs once and wait for that attempt
+        id: rerun
+        if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -uo pipefail
+          # The event says attempt 1, but the run may have moved on since (a duplicate delivery of this event queued
+          # behind the job that already re-ran it, or a human's re-run): never re-run a run past its first attempt.
+          cur=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq '.run_attempt') || cur=
+          if [ "$cur" != 1 ]; then
+            echo "run $RUN_ID is at attempt '${cur:-unknown}', not 1: not re-run again"
+            echo "attempt=${cur:-1}" >> "$GITHUB_OUTPUT"; echo "conclusion=not-rerun" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "run $RUN_ID failed on attempt 1: re-running its failed jobs once"
+          if ! gh run rerun "$RUN_ID" --failed -R "$REPO"; then
+            echo "::warning::could not re-run run $RUN_ID; it stays red for a human"
+            echo "attempt=1" >> "$GITHUB_OUTPUT"; echo "conclusion=failure" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          att=1; status=; concl=
+          for i in $(seq 1 110); do              # about 55 minutes, at 30 s
+            sleep 30
+            line=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq '"\(.run_attempt)\t\(.status)\t\(.conclusion // "")"') || continue
+            IFS=$'\t' read -r att status concl <<< "$line"
+            if [ "$att" -ge 2 ] && [ "$status" = completed ]; then break; fi
+          done
+          echo "attempt $att: status ${status:-unknown}, conclusion ${concl:-none}"
+          echo "attempt=$att" >> "$GITHUB_OUTPUT"
+          if [ "$att" -ge 2 ] && [ "$status" = completed ]; then
+            echo "conclusion=$concl" >> "$GITHUB_OUTPUT"
+          else
+            echo "conclusion=unfinished" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Record flakes in the "CI flake log" issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          TRIGGER_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          TRIGGER_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RERUN_ATTEMPT: ${{ steps.rerun.outputs.attempt }}
+          RERUN_CONCLUSION: ${{ steps.rerun.outputs.conclusion }}
+        run: |
+          set -uo pipefail
+          attempt=$TRIGGER_ATTEMPT; concl=$TRIGGER_CONCLUSION
+          if [ -n "$RERUN_ATTEMPT" ]; then attempt=$RERUN_ATTEMPT; concl=$RERUN_CONCLUSION; fi
+          if [ "$concl" != success ]; then
+            echo "run $RUN_ID ended attempt $attempt with '$concl': nothing is logged; it stays red for a human"
+            exit 0
+          fi
+          run_url="https://github.com/$REPO/actions/runs/$RUN_ID"
+          sha=$(printf '%s' "$HEAD_SHA" | tr -cd '0-9a-f' | cut -c1-7)
+          work=$(mktemp -d)
+
+          # Every attempt's jobs (ci-ok only reports, so it is never a flake of its own).
+          gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?filter=all&per_page=100" \
+            --jq '.jobs[] | select(.name != "ci-ok") | {id, name, run_attempt, conclusion, html_url}' > "$work/raw.jsonl" || {
+            echo "::warning::could not read run $RUN_ID's jobs; nothing logged"; exit 0; }
+          # Once per job id, whichever attempts the API lists a job under (as ci-ok reads them).
+          jq -c -s 'unique_by(.id)[]' "$work/raw.jsonl" > "$work/jobs.jsonl"
+
+          # A job's failure-level annotations, one JSON object per line.
+          annotations() {
+            gh api --paginate "repos/$REPO/check-runs/$1/annotations?per_page=100" \
+              --jq '.[] | {level: .annotation_level, title: (.title // ""), message: (.message // "")}' 2>/dev/null || true
+          }
+          # Data printed by the tested code: at most 1500 characters a line, no code-fence breaks; oneline joins lines.
+          clean() { tr -d '\r' | sed 's/~~~/~ ~ ~/g' | cut -c1-1500; }
+          oneline() { clean | tr '\n' ' ' | sed 's/ *$//'; }
+
+          : > "$work/events"
+          # 1. A job that failed on one attempt and succeeded on a later one: the re-run passed.
+          jq -rs 'group_by(.name)[] | sort_by(.run_attempt) as $a
+                  | ($a | map(select(.conclusion == "success")) | last) as $ok
+                  | ($a | map(select(.conclusion != "success" and .conclusion != "skipped" and .conclusion != null
+                                     and .run_attempt < ($ok.run_attempt // 0))) | last) as $bad
+                  | select($ok != null and $bad != null)
+                  | [$bad.id, $bad.run_attempt, $ok.id, $ok.run_attempt, $bad.conclusion, $bad.html_url, $a[0].name] | @tsv' \
+             "$work/jobs.jsonl" > "$work/reruns.tsv"
+          while IFS=$'\t' read -r bad_id bad_att ok_id ok_att bad_concl bad_url name; do
+            [ -n "$bad_id" ] || continue
+            annotations "$bad_id" | jq -r 'select(.level == "failure") | .message' | head -n 5 | clean > "$work/fails.txt"
+            timing=$(annotations "$bad_id" | jq -r 'select(.level == "failure") | .message
+                       | select(test("; timing: ")) | split("; timing: ") | last' | head -n 3 | oneline)
+            {
+              echo "<!-- ci-flake-log: run=$RUN_ID job=$bad_id kind=rerun -->"
+              echo "**Re-run passed**: the job failed on attempt $bad_att ($bad_concl) and passed on attempt $ok_att."
+              echo
+              echo "- Run: $run_url (commit \`$sha\`)"
+              echo "- Job: [the failed attempt]($bad_url), job id $bad_id; passed as job id $ok_id"
+              echo "- Attempt: failed on $bad_att, passed on $ok_att"
+              echo "- Timing readings: ${timing:-none recorded on the failure lines}"
+              echo "- Job name and the failing test(s), from the job's failure annotations:"
+              echo
+              echo '~~~'
+              printf '%s\n' "$name" | oneline; echo
+              if [ -s "$work/fails.txt" ]; then cat "$work/fails.txt"; echo; else echo "(no failure annotation: a runner, install or timeout failure)"; fi
+              echo '~~~'
+            } > "$work/event-rerun-$bad_id.md"
+            echo "$work/event-rerun-$bad_id.md" >> "$work/events"
+          done < "$work/reruns.tsv"
+
+          # 2. Every "Flaky test" annotation in any attempt's jobs: the suite's or a probe lane's retry passed.
+          jq -r '[.id, .run_attempt, .html_url, .name] | @tsv' "$work/jobs.jsonl" > "$work/all.tsv"
+          while IFS=$'\t' read -r job_id job_att job_url name; do
+            [ -n "$job_id" ] || continue
+            n=0
+            annotations "$job_id" | jq -c 'select(.level == "warning" and .title == "Flaky test")' > "$work/flaky.jsonl"
+            while IFS= read -r a; do
+              n=$((n + 1))
+              msg=$(printf '%s' "$a" | jq -r '.message' | oneline)
+              test_name=$(printf '%s' "$a" | jq -r '.message | split(": first run: ")[0]' | oneline)
+              timing=$(printf '%s' "$a" | jq -r '.message | if test("; timing: ") then (split("; timing: ") | last) else "" end' | oneline)
+              {
+                echo "<!-- ci-flake-log: run=$RUN_ID job=$job_id kind=flaky n=$n -->"
+                echo "**Flaky test**: failed on the first run inside the job, passed on the harness's own retry."
+                echo
+                echo "- Run: $run_url (commit \`$sha\`)"
+                echo "- Job: [the job]($job_url), job id $job_id, on run attempt $job_att"
+                echo "- Attempt: the first run failed, the retry in a fresh browser passed"
+                echo "- Job name, the test, its first-run failure and timing readings:"
+                echo
+                echo '~~~'
+                printf '%s\n' "$name" | oneline; echo
+                echo "test: $test_name"
+                echo "timing: ${timing:-none recorded}"
+                echo "first run: $msg"
+                echo '~~~'
+              } > "$work/event-flaky-$job_id-$n.md"
+              echo "$work/event-flaky-$job_id-$n.md" >> "$work/events"
+            done < "$work/flaky.jsonl"
+          done < "$work/all.tsv"
+
+          count=$(grep -c . "$work/events" || true)
+          if [ "$count" -eq 0 ]; then echo "run $RUN_ID: green with no failed attempt and no flaky test; nothing to log"; exit 0; fi
+
+          # The one issue: found by its exact title (reopened if closed), created with its label if missing.
+          num=$(gh issue list -R "$REPO" --state all --label ci-flake --limit 100 --json number,title,state \
+                  --jq '[.[] | select(.title == "CI flake log")] | sort_by(.state != "OPEN") | .[0].number // empty')
+          if [ -z "$num" ]; then
+            num=$(gh issue list -R "$REPO" --state all --search 'in:title "CI flake log"' --limit 100 --json number,title,state \
+                    --jq '[.[] | select(.title == "CI flake log")] | sort_by(.state != "OPEN") | .[0].number // empty')
+          fi
+          if [ -z "$num" ]; then
+            gh label create ci-flake -R "$REPO" --color FBCA04 \
+              --description "CI flake log: failures that passed on a retry or a re-run" 2>/dev/null || true
+            printf '%s\n' \
+              "One comment per CI flake: a test that failed and then passed on the suite's or a probe lane's own retry," \
+              "or a job that failed and passed when its run was re-run (.github/workflows/ci-rerun.yml, DEC-066)." \
+              "A flake that keeps coming back shows as repeated comments: look for the same job and test." \
+              "A run that fails on both attempts is not logged here; it stays red." > "$work/issue.md"
+            url=$(gh issue create -R "$REPO" --title "CI flake log" --label ci-flake --body-file "$work/issue.md")
+            num=${url##*/}
+          else
+            gh issue reopen "$num" -R "$REPO" >/dev/null 2>&1 || true
+          fi
+          echo "flake log: issue #$num"
+
+          # Never twice: an event whose marker is already on the issue was logged by an earlier job.
+          gh api --paginate "repos/$REPO/issues/$num/comments?per_page=100" --jq '.[].body' > "$work/existing.txt" || : > "$work/existing.txt"
+          posted=0
+          while IFS= read -r f; do
+            marker=$(head -n 1 "$f")
+            if grep -qF -- "$marker" "$work/existing.txt"; then echo "already logged: $marker"; continue; fi
+            if gh issue comment "$num" -R "$REPO" --body-file "$f" >/dev/null; then
+              posted=$((posted + 1)); printf '%s\n' "$marker" >> "$work/existing.txt"
+            fi
+          done < "$work/events"
+          echo "run $RUN_ID: $posted of $count event(s) posted to issue #$num"
