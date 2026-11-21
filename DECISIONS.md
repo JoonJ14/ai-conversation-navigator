@@ -10734,3 +10734,335 @@ and the lab's `docs/STATUS.md` keeps the next session under the go of 18:17Z.
 3. **The owner's steps** in the order of the lab's list: merging PR #97; the install script's dry run, then its run
    with sudo; the two tokens; "installed", then the orchestrator's tests 6.1 (test 9 first, reported at once) and the
    owner present for 6.2; the one-line switch to the real client; Phase 5's list, long chats and hand-checked sample.
+
+### The broker approved for use after its tests; the merge step and the real client, both off (2026-11-20)
+**State and context.** The owner's message of 05:00:07Z on 2026-11-21 (UTC), dated 2026-11-20 by the owner, is the
+second of the two named at the start of "The first session of Phase 2". That section recorded only what bound the
+session (items 7 to 10, and one line on items 1 to 3 and 4a); this one records the message in full and the broker
+build it started. Context of every claim in this section, unless a part says otherwise:
+- the build: a separate worktree of the private lab repo, branch `pipeline/broker-merge-step` from lab `6e15314`, **not
+  committed when this was written** (41 files changed and 8 new); this Mac (macOS 26.6.2), Node 24.22.2; unit tests
+  only, one file at a time, with stand-ins (a stand-in GitHub over a local bare repository and on 127.0.0.1 at a port
+  the system picks, throwaway folders, a PATH of stand-ins for the install script); the build made no GitHub write or
+  API call, no Discord post and no Keychain read, and used no VM, browser or AI site; **stand-in evidence only, never a
+  real GitHub, a real token or the installed broker**;
+- "red on `6e15314`" means the test file run on a `git archive` copy of `6e15314` with the new tests copied in;
+- GitHub's documentation pages as the build's agents read them on 2026-11-21;
+- PR #97 and the times: the orchestrator's session record and GitHub's answers to its calls.
+
+The owner's words are quoted from the orchestrator's session record: the resume pack's file of the owner's verbatim
+messages ends at an earlier message. The lanes' and the integrators' reports are kept with the orchestrator's session,
+outside both repos.
+
+**1. The owner's answers (the owner's words, dated 2026-11-20; quoted in full).** 05:00:07Z, pasted as one block. It
+repeats the message of 04:51:11Z word for word in items 1 to 8, adds items 9 and 10, and replaces its order line. One
+path in item 5b has its folder written in brackets, by this record's rule on paths; nothing else is changed.
+
+> Read your update. Answers, dated 2026-11-20:
+>
+> 1. The allow list (section 3) and the two fixed prompts (section 4.4): approved, with one addition (item 2), for use
+> after the tests of 6.1 and 6.2 pass.
+>
+> 2. Add a merge step to the broker now, switched off. My decision 10 said auto-merge is built and off; the proposal
+> stops at labels.
+>    a. Only the broker starts a merge. The agent has no request for it.
+>    b. It merges only when all of these hold, read by the broker itself: the PR has would-auto-merge by the broker's
+>    own rules, Codex's verdict is a pass, the required checks are green, the live fix check passed, the head commit
+>    hasn't moved since those were read, and every changed file is inside the path allowlist. Never anything under
+>    .github/.
+>    c. The switch is a setting in a file in my account that navifix can't write. Default off.
+>    d. While it is off, the report and the "ready to merge" Discord message say "would have merged" or "needs
+>    approval, because ...".
+>    e. Build it for the code fix loop. Write it so the CI fix loop can get it later by a setting.
+>    f. Prove it by merging a test PR into a throwaway base branch, never main. Show the refusals too: switch off, wrong
+>    label, head moved, a .github/ path.
+>    g. Tell me whether the GitHub token needs any new permission for this. I expect none.
+>
+> 3. Choice 11: approved. Make that one-line change to claude-code-review.yml as its own PR on the public repo, for me
+> to merge.
+>
+> 4. Tokens:
+>    a. GitHub token: one year.
+>    b. The broker records both tokens' expiry dates (the GitHub token's, and the Claude token's creation date plus one
+>    year). The morning nudge warns me 14 days before either runs out.
+>    c. Keep the broker's GitHub token source as one swappable part. In Phase 5 we test a GitHub App (self-renewing
+>    one-hour tokens), including whether Codex answers "@codex review" from the app's bot name. Don't build that now.
+>
+> 5. The install script, before I run it:
+>    a. Put the real client in before the first install, switched off by a setting, so I install once. Dry run stays
+>    the default until 6.1 passes. Then tell me the one change that switches it on.
+>    b. Part 4 makes [the Mac's shared folder]/navi-chats.txt unreadable for my account. Confirm nothing of mine still
+>    reads it, or leave that file out.
+>    c. After items 2 and 5 are in, tell me the commit and the exact dry-run command. I'll read its output before I run
+>    it with sudo.
+>
+> 6. Test 9, whether the agent's commands can see the loop's Claude token on macOS: run it first of the 6.1 tests and
+> tell me the result at once. If it fails, don't drop the loops. Bring me the choice in the short form: what an agent
+> could do with the token, and what limits it.
+>
+> 7. Layout groups: after the real session, tell me how many copies per site ended "unconfirmed". If Grok's and
+> Perplexity's groups are only small count differences, group on what the selectors need, not on element counts.
+>
+> 8. The real session runs from lab 6e15314.
+>    a. Do the broker work in a separate worktree. Don't change the lab folder's checked-out files until the session
+>    has finished.
+>    b. While a real session runs, run no simulations, test suites or parallel agents on the Mac.
+>    c. The three first attempts that failed: one line on whether "the Mac was overloaded" was measured or is a guess.
+>    No re-investigation.
+>
+> 9. Installing scripts in the VM browsers becomes a pipeline tool, not my step. I've done these clicks three times
+> and won't do them again. Do this first, before the broker work.
+>    a. Build it as a kept command in the pipeline. For any of the seven Tampermonkey browsers it can remove a named
+>    userscript, install one from the receiver's address, change a Tampermonkey setting, and quit the browser cleanly.
+>    Safari gets the same through its scripts folder.
+>    b. Use the session's own method: clicks and keys in the VM windows, screenshots of VM windows only. No WebDriver
+>    and no remote debugging.
+>    c. Before it removes anything, it reads the row's name from the screen. It touches the checker's script only when
+>    the job is to replace it.
+>    d. It verifies its own work with the pre-check and reports per browser.
+>    e. First use: the loader steps in the seven browsers, then the pre-check on all eight. Send me the result.
+>    f. If a browser fails twice, list it with the reason in one line. I decide whether to do that one by hand so the
+>    session isn't held up. The tool gets fixed afterwards either way.
+>    g. Design rule from now on: nothing in Phases 2 to 6 may need a script install or a browser setting from me. New
+>    Navi builds, admin builds and checker logic come from the receiver. Anything else goes through this tool.
+>    h. Give me the list of everything that still needs my hands after this, each with its reason in one line.
+>
+> 10. Standing rule from now on: a step is yours if it is only clicks or typing in a VM window, on a page that isn't
+> one of the five AI sites, with no password, passkey or other secret. Mine are sign-ins, passwords, passkeys, sudo,
+> creating tokens or accounts, and anything in my own browsers. For a real session I give the go in words and you run
+> the command, unless something technical needs my Terminal. If so, tell me what.
+>
+> My order now: you build the install tool, do the loader steps with it and run the pre-check. I read the result and
+> give the go for the session. The broker install comes after that.
+
+The order line of 04:51:11Z, which this one replaced:
+
+> My order now: I do the loader steps and tell you when all three VMs are done. You run the pre-check on the eight
+> browsers. Then I start the session. The broker install comes after that.
+
+**2. The worktree (item 8a) and the order.**
+- **Between 04:51 and 04:54Z:** the orchestrator made the separate worktree (branch `pipeline/broker-merge-step` from
+  `6e15314`, with a link to the lab's installed packages that is never committed) and started the broker build there,
+  about 04:54Z: one workflow, three lanes on disjoint files (the merge step; the real client and the tokens; the
+  install script and the proposal), then an integrator. The lab folder's checked-out files stayed at `6e15314`.
+- **05:00:17Z:** the orchestrator stopped the build, because item 9 puts the install tool first ("Do this first, before
+  the broker work"). It had returned nothing; its partial edits stayed in the worktree. The install tool got a worktree
+  of its own (branch `pipeline/install-tool`, from `6e15314`).
+- **Then the owner's order** (all in "The first session of Phase 2"): the install tool built and used for the loader
+  steps (05:08 to 06:40Z), the pre-check of the eight browsers (06:48 to 07:09Z), the owner's go (16:52:41Z), the
+  session from the lab folder at `6e15314` (16:53:40 to 17:29:14Z). No part of the broker build ran from 05:00:17Z to
+  the session's end (item 8b).
+- **After the session:** the build resumed about 17:32Z in the same worktree (the three lanes to about 17:55Z, then an
+  integrator to about 18:13Z), was paused at about 18:19Z to keep the Mac quiet for the next session, and resumed at
+  about 18:32Z with the owner's rename of the loop's branches (the section before, part 6, item 2). In that last pass
+  the three lanes found their earlier work in place, checked it against the owner's words and fixed what was wrong;
+  the second integrator made the rename and finished at about 19:12Z.
+- **"The broker install comes after that":** not yet. The owner's run of the install script with sudo waits for the
+  commit that holds this build and the owner's reading of its dry run (item 5c, part 5).
+
+**3. Item 2: the merge step, built and off** (new `pipeline/broker/lib/merge.js`, its numbers and lists in
+`lib/rules.js` `MERGE`, wired in `lib/broker.js`; the lab's broker proposal, new section 3.7 and 6.2 tests 22 to 24).
+What was built, by the owner's letters:
+- **(a)** It runs only inside the broker, after it has accepted a `ready-to-merge` report of a code-fix job in the stage
+  after the live check. No request names a merge: the request schema already refused `merge`, `auto-merge` and
+  `enable-auto-merge` by name, so (a) needed no schema change, and a test shows the refusal.
+- **(b)** Each condition is read by the broker through its own GitHub client: the PR; its own would-auto-merge rules run
+  again (not only the label's presence), with GitHub's labels on the PR showing `would-auto-merge` and no
+  `needs-approval` in any spelling; its own Codex read, clean on the head; the live fix check's results passing, on a
+  loaded commit that is the head; the base's required checks green, and no red check run or status on the head;
+  GitHub's list of the PR's files, every one inside the push allowlist, with no `.github` folder at any depth, in any
+  letter case, a rename's old name included. Then it reads the switch, then the PR's head again, then makes one call,
+  `PUT pulls/{n}/merge` with `{"sha": <the checked head>, "merge_method": "merge"}`. Only a 200 with `merged: true`
+  counts as merged.
+- **(c)** The switch is `automerge.json` in the broker's folder (`~/Library/Application Support/NaviBroker`, the owner's
+  account, folder mode 700), in exactly one form, `{"version":1,"codeFix":false,"ciFix":false}` as the install script
+  makes it: owner-owned, mode 600, never rewritten. The broker only reads it. It is off when absent, unreadable, a link,
+  hard-linked, not the owner's, writable by group or others, over 4 KB, or in any other form (the old
+  `{"autoMerge": ...}` included). Nothing of the pipeline writes it; the session side and the dispatch read it through
+  the broker's own reader, so one file is read one way.
+- **(d)** The report comment and the "ready to merge" post end with the broker's line: "would have merged into <base>
+  at head <sha>; the merge switch is off (<why>)", or "needs approval, because <every reason>", and then "Nothing merges
+  without your OK." unless the PR merged. With the switch on and the dry-run client, the line says the step would have
+  merged "but the broker's client is the dry run (settings.json), so the merge call was printed, not sent". The last
+  pass fixed that case: it had read "needs approval, because GitHub refused the merge (status 200)".
+- **(e)** Built for the code fix loop (`codeFix`). `ciFix` is read and kept, and `true` there is refused with that
+  reason while the CI fix loop's merge is not built (`MERGE.built`). Giving it to the CI fix loop later is that setting
+  plus its own proof, on the bases `main` and `ci-copies`.
+- **(f)** Shown against the stand-in GitHub only (part 8). The live proof, 6.2 tests 22 to 24, has not been run.
+
+The build's choices, each with its reason:
+- **The required checks come from the base's rulesets** (`GET rules/branches/{base}`) plus the broker's own minimum,
+  `ci-ok` on `main`, and the step refuses if the rules cannot be read. Classic branch protection is not read, because
+  reading it needs the Administration permission, which the token does not hold and should not get.
+- **The switch is read after every condition, and the call names the checked head.** Item 2(b) says "the head commit
+  hasn't moved since those were read". GitHub refuses a merge whose `sha` is no longer the head with 409 (part 4), so a
+  head that moves after the broker's last read still cannot merge.
+- **A real job merges only into `main`; a proof or test job only into a `test/` branch, never `main`** (item 2(f):
+  "never main"). The broker opens every proof PR against `test/loop-proof`; the proposal's earlier "a new `test/<name>`
+  for each run" was wrong and was corrected.
+- **The Discord post count is checked before the merge,** so a merge is never followed by a refused post.
+- **In 6.2 the owner writes the follow-up job's live results by hand,** because 6.2 has no AI site. This is the
+  integrator's choice, and the owner should confirm it.
+- **Live, a moved head is refused one step earlier,** by the `ready-to-merge` check ("the PR head is not the commit the
+  session loaded"). The step's own re-read and GitHub's 409 cannot be timed by hand, so they are shown against the
+  stand-in only. **The `.github/` refusal is shown live by an older base:** the loop can never push such a path, so for
+  that run the owner moves `test/loop-proof` back to `d3f3d16`, the parent of `d6bddbd`, a public-repo commit that
+  changed files under `.github/` (read 2026-11-21), and GitHub's file list then names that path.
+- **The dispatch, which only ever runs as a dry run, still refuses to run while the switch is on** ("a dry run never
+  merges"). The real loop starts through the owner's launcher, which does not read the switch.
+
+**4. Item 2(g): no new permission for the GitHub token.** The answer, with its source: GitHub's table of the
+permissions fine-grained tokens need
+(`docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens`, read
+2026-11-21):
+- the merge call, `PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge`, is listed under Contents (write), which step 3
+  of the proposal already grants;
+- the new reads: `GET .../rules/branches/{branch}` under Metadata (read), which every fine-grained token has;
+  `GET .../pulls/{pull_number}/files` under Pull requests (read) and `GET .../commits/{ref}/status` under Commit
+  statuses (read), both already in step 3;
+- `GET .../branches/{branch}/protection` is under Administration (read); the broker does not call it.
+
+From "Merge a pull request" (`docs.github.com/en/rest/pulls/pulls#merge-a-pull-request`, the same day): `sha` is the
+"SHA that pull request head must match to allow merge", and the call answers "409 Conflict if sha was provided and pull
+request head did not match". Not confirmed: the check runs read (`GET .../commits/{ref}/check-runs`) is on neither that
+table nor the check runs page (`docs.github.com/en/rest/checks/runs`) as fetched that day. Step 3's Checks (read) is
+meant to cover it, and it stays [unmeasured] until 6.1's first real read. It is not a new need: the broker already read
+check runs at `6e15314`. Also unmeasured: whether a merge would need the Workflows permission when the base's history
+touches `.github/workflows`; the step refuses any `.github` path in the PR anyway.
+
+**5. Items 4 and 5: the tokens, the real client and the install script.**
+
+Item 4, the tokens:
+- **(a) One year.** The proposal's step 3 says Expiration one year (it said 90 days). GitHub's "Managing your personal
+  access tokens" (read 2026-11-21) gives `expires_in` as "Integer between 1 and 366, or `none`". Whether the Expiration
+  screen offers a date one year ahead is seen only in the owner's step 3.
+- **(b) Both expiry dates** go in `tokens.json` in the broker's folder (mode 600, dates only, never a token;
+  `lib/expiry.js`). The GitHub date comes from the `github-authentication-token-expiration` header on each real answer.
+  None of the GitHub docs pages read gives that header's value form (only a 2021 changelog names the header), so it is
+  [unmeasured] until the first real call: the parser accepts three forms, and a value in any other form is not recorded
+  and the call's log line says "not a known form". The Claude date comes from the owner's command in step 2,
+  `broker.js --record-claude-token-created YYYY-MM-DD`: it writes the creation date and that date plus one year (29
+  February gives 28 February) and leaves the rest of the file as it was. The morning nudge (`pipeline/nudge/nudge.js`
+  `tokenItems`) adds an owner item from 14 days before either date, counted in Central calendar days, and says "ran out
+  on" once the date has passed. It never reads a token.
+- **Beyond the spec, with its reason:** two more nudge items, one when `tokens.json` cannot be read and one when the
+  Claude date is not recorded, so that the warnings cannot go silent. Left: while `tokens.json` does not exist yet, the
+  nudge has no Claude item at all, and only the install script's printed step reminds the owner.
+- **(c) One swappable token source:** `lib/token-source.js`. Its one source today, `keychain-pat`, reads the token from
+  the owner's Keychain at each use, and the real client and git's credential answer take it only from there. The three
+  members a GitHub App source would implement are written in a comment; nothing of it is built (Phase 5).
+
+Item 5, the install script (`pipeline/broker/install/install-navifix.sh` and its README) and the real client:
+- **(a) The real client in, off by a setting.** `lib/github-real.js` and `lib/discord-real.js` are installed with the
+  broker. The real client sends REST calls only to `https://api.github.com` and only for the two repos' paths, follows
+  no redirect, and puts the token in one Authorization header and nowhere else; git goes over HTTPS and gets the token
+  only through a credential helper, and forced or deleting pushes are refused. Which client runs is read once at start
+  from `settings.json` beside the switch (`broker.js` `readSettings`). Only an exact `{"version":1,"client":"real"}`, in
+  a regular file that the owner owns and only the owner can write, turns the real client on; anything else means the
+  dry run, and `--dry-run` on the command line forces it. The script's part 8 makes `settings.json`
+  `{"version":1,"client":"dry-run"}` and `automerge.json` off, each only when absent, owner-owned, mode 600 and never
+  rewritten, and a link stops the part. Its final check adds two lines: `navifix` cannot write either file.
+- **The one change that switches it on,** after 6.1 passes: write `{"version":1,"client":"real"}` into `settings.json`
+  (the script prints the exact command), then restart the broker's LaunchAgent with `launchctl kickstart -k`. The merge
+  switch stays off until the owner turns it on, after 6.2's merge proof.
+- **Found and fixed in the build:** the committed LaunchAgent passed `--dry-run`, which overrides the setting for good,
+  so the one change could never have switched the real client on. The flag is removed, and the script's part 8 refuses
+  any commit whose LaunchAgent passes it. Also fixed: the step 2 command the script printed (`--record-claude-token`)
+  was not one the broker handles; it now prints `--record-claude-token-created`, and a test runs the printed commands
+  against the installed broker.
+- **The build's other choices, with their reasons:** the credential helper is the broker itself (`broker.js
+  --git-credential`), not a separate file, and the proposal's 2.2 now describes it as built. The real client follows no
+  redirect, so the job-logs read, which GitHub answers with a redirect to another host, comes back empty; following it
+  would need that host on the allow list, which is the owner's choice. The client's test-only address accepts only
+  `http://127.0.0.1:<port>`, and `broker.js` has no way to set it (a test checks its source).
+- **(b) The chats file in the Mac's shared folder** is kept in part 4, and the part prints why. Measured read-only on
+  2026-11-20 and again on 2026-11-21: owned by the Navi Test user, group wheel, mode 644, 334 bytes, the five test chat
+  addresses of Experiment 1. Nothing of the owner's reads it: the runner reads its chat list from
+  `local/pipeline/chats.json` in the lab's untracked `local/`, and a search of the lab, the public repo and the owner's
+  LaunchAgents finds the name only in the install script, its README and test, the loop's deny hook, the broker
+  proposal, the lab's runbook (a note that the file was left there) and the public `HANDOFF.md`.
+- **(c) The commit and the exact dry-run command: not yet.** No commit holds this build, and the script refuses to run
+  from a tree that differs from its commit (in the worktree: "refused: this script differs from commit 6e15314...",
+  exit 2, as designed). Once the branch is merged into the lab's branch and checked out clean, the command, from the lab
+  folder and with no sudo, is `bash pipeline/broker/install/install-navifix.sh --dry-run` (`--expect <commit>` makes it
+  refuse any other commit). The second integrator ran it with stand-ins on a throwaway commit made from the worktree:
+  exit 0, all eight parts "(dry run: nothing was run)", both switches off, the one change and the step 2 and step 3
+  commands printed, and no old branch name.
+
+Items 1 and 6, where they stand: the proposal's status line says approved for use after 6.1 and 6.2 pass, with item
+1's words. Its 6.1 runs test 9 first and reports it at once; on a failure the loops are kept, and the owner gets the
+short-form choice (what an agent could do with the token, and what limits it). Not run: it needs the owner's steps.
+
+**6. Item 3: PR #97 (choice 11).**
+- **Opened** by the orchestrator between 04:51 and 04:54Z, for the owner to merge: branch
+  `ci/claude-review-skip-fix-branches` from `main`, one line on the `claude-review` job of
+  `.github/workflows/claude-code-review.yml`, `if: ${{ !startsWith(github.head_ref, 'fix/') }}`. The PR's reason: on a
+  loop PR the diff is written by the unattended fix loop, and that workflow runs a second agent with the repo's Claude
+  token and write access to PRs and issues over it; Codex still reviews every fix PR, and Tiers 1 to 3 run inside the
+  loop.
+- **Changed:** at 18:17Z the owner declined it as written, because the owner's own branches use `fix/` (the section
+  before, part 6, item 2). Its condition became `loop-fix/` (head `b57cc50`), and the loop's public branches are
+  `loop-fix/<job>` in this build (part 7).
+- **Merged:** at 18:35:29Z the owner wrote "go ahead and merge pr 97". The orchestrator checked it (open, mergeable, all
+  20 of its checks green, the required `ci-ok` among them) and merged it pinned to head `b57cc50` at 18:35:50Z, merge
+  commit `b0a6df9`. Main's CI run on `b0a6df9` passed. So the first of the owner's steps in part 7 of the section
+  before is done, and the proposal's 6.2 note that a red Claude review on a loop push could turn its merge proof into
+  "needs approval" no longer applies to `loop-fix/` branches.
+
+**7. Also in this build: the owner's rename of the loop's branches** (the section before, part 6, item 2a, and the
+orchestrator's choice for the lab). Every loop branch pattern, prompt, proposal line, dispatch, fix-loop file and test
+now uses `loop-fix/<job>` on the public repo and `loop-ci-fix/<job>` with `loop-ci-fix/<job>-copies` on the lab; the
+owner's own `fix/` branches and the old loop names never match, and `navi-push` refuses them before a request reaches
+the broker. Found at the check: 6.2 test 17 pushed `ci-fix/<b>-dryrun`, a name the allow list always refused; it now
+pushes the job's own `loop-ci-fix/<b>`. The job kinds `ci-fix` and `code-fix`, the files named after them and the
+commit-title prefixes are not branch names, and are unchanged.
+
+**8. The tests** (the second integrator, about 18:46 to 19:12Z; one file at a time, each after the build's pause file):
+21 test files, every one exit 0.
+
+| Test file | Now | Red on `6e15314` |
+|---|---|---|
+| `unit-broker-merge` (new) | 26 of 26 | fails to load (no `merge.js`); with the new `merge.js` and `rules.js` but the old `lib/broker.js`, 21 of 26 fail, every broker-level test, so the wiring is what makes them pass |
+| `unit-broker-real` (new) | 15 of 15 | fails to load; with the new modules but the old `broker.js`, 5 fail (the three setting tests, the credential helper's wiring, the record command) |
+| `unit-install-navifix` | 12 of 12 | 6 fail: the all-"y" run, the dry run's two switches and last lines, the printed commands run against the installed broker, a LaunchAgent with `--dry-run` stopping part 8, the switches never rewritten, a switch that is a link |
+| `unit-nudge` | 48 of 48 | 5 fail (the token items and the imports check) |
+| `unit-fixloop-automerge` | 7 of 7 | 5 fail |
+| `unit-fixloop-checker` | 16 of 16 | 2 fail (the merge line, the new switch form) |
+| `unit-broker-scan` | 12 of 12 | 2 fail (the new rename test, and the branch-names test, whose branches were renamed) |
+| `unit-broker-loop` 10, `unit-broker-push` 18, `unit-broker-requests` 19, `unit-broker-checker` 5, `unit-dispatch` 12, `unit-fixloop-label` 15, `unit-fixloop-messages` 6, `unit-fixloop-run-parts` 10, `unit-fixloop-run` 11, `unit-fixloop-sim` 4, `unit-integration-phase34` 11, `unit-d9-storage-texts` 8, `unit-fixcheck-judge` 9, `unit-copies` 8 | all pass | not reported |
+
+The merge tests merge into `test/loop-proof` on the stand-in's bare repository, once through the stand-in client and
+once through the real client (`lib/github-real.js`) to a server on 127.0.0.1. They show "would have merged" with the
+switch absent, `codeFix` false, only `ciFix` true, the old form and a file others can write; and "needs approval" for a
+wrong label and `needs-approval` added on GitHub, a required check red, not run or still running, the base's rules
+unreadable, a `.github/` path (also as `.GitHub/` and as a rename out of `.github/`), a file outside the allowlist, a
+proof or test job with the base `main`, and a head that moved before the call, and GitHub's 409 at the call. Not run:
+`unit-fixloop-run-realci`, which launches Chromium, not allowed in the build.
+
+**9. What does not work, or is open** (about 19:12Z):
+- **The installed broker's outgoing scan has nothing to look for.** `broker.js` `main` creates the broker with
+  `secrets: []`, an empty name list and no private ids (line 140 in the worktree, read when this was written), so the
+  piece scan of the proposal's 3.5 would not see either token's pieces. It was already so at `6e15314`. The first
+  integrator found it (about 18:13Z), and nothing has changed it since. It must be fixed before the switch to the real
+  client.
+- **Nothing is committed.** The commit must hold the eight new files (five `lib/` modules, the vendored Discord sender,
+  two tests), because the install script installs only what is committed, and must not hold the worktree's link to the
+  lab's packages.
+- **The merge step, the real client, the token record and the credential helper have never met real GitHub.**
+  Unmeasured until 6.1 and 6.2: the expiry header's form; whether the token can read check runs; whether the credential
+  helper reads the Keychain under git's reduced environment, and whether macOS asks on the first read; whether Codex
+  reviews a PR again when its base moves (6.2 test 22d); every live answer in 6.2. `test/loop-proof` has no ruleset
+  (none on 2026-11-20), so there the required checks hold by default and only a red check on the head refuses.
+- **The CI fix loop's merge is not built** (item 2(e)'s later setting, with its own proof).
+- **The job-logs read comes back empty** through the real client (part 5); whether to add the redirect's host is the
+  owner's choice.
+
+**What waits.** First the orchestrator's part: the scan fix above, then the commit, then that commit and the exact
+dry-run command for the owner (item 5c). Then the owner's steps, as the lab's
+`docs/reports/2026-11-21-owner-steps-for-the-automatic-run.md` (`e8bb2db`) lists them: read the dry run, then run the
+script with sudo; the loop's Claude token with the record command, and the broker's GitHub token for one year;
+"installed", after which the orchestrator runs 6.1 with test 9 first, reported at once; 6.2 with the owner present,
+whose tests 22 to 24 are the merge step's live proof; the one change to the real client after 6.1 passes. **One
+mismatch, both kept:** that list, like part 7 of the section before, puts the one change after 6.2, while the
+proposal's 6.2 runs the merge proof "after 6.1 has passed and `settings.json` says `"real"`". By the proposal, the one
+change comes between 6.1 and 6.2. The merge switch stays off until the owner turns it on, after 6.2's merge proof.
