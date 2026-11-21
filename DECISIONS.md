@@ -5244,7 +5244,7 @@ owner's, committed as `6911977`). Public docs on `ci/live-verification-layer`; a
 proves a change is needed, which would stop for the owner (spec). **Replaces** the "live verification layer (the next
 spec)" placeholder in ROADMAP and the 2026-11-12 handoff's "spec 1, a built-in self-test", which the owner rejected.
 
-### Where this stands (2026-11-21, about 04:40Z, the evening of 2026-11-20 in Central; Phases 2 to 4 built, their proofs run without a site, two repair rounds and the last build before the first session of Phase 2, all in the simulator, under the owner's working rules and change of order; no AI site visited since 00:08Z on 2026-11-20): read this first
+### Where this stands (2026-11-21, about 18:40Z; Phases 2 to 4 built and proven in the simulator; the first session of Phase 2 run on the five real sites, 16:53 to 17:29Z, with no copy stored; its capture fixes built and verified in the simulator, not committed): read this first
 This DEC is a running, chronological record (each section dated; corrections stay next to what they correct, both
 results kept). This block and the last sections are the current state.
 - **Status:** Experiment 1 is complete (2026-11-19 02:08Z): **40 of 40 page loads accepted**, signed in to the test
@@ -5310,8 +5310,17 @@ results kept). This block and the last sections are the current state.
   all of it passing** (unit 900 tests twice, 0 failing; mocks and round trip in three engines; the sessions against
   `2dcc15e`; the Phase 3 proof with the layout rule; the Phase 4 proof to "ready to merge", closed unmerged); the first
   attempts of three parts were lost to the receiver's fixed 10 s start wait under heavy load, and one smoke run to its
-  pre-check cap, all passing when run again at a lower load. That build is not committed at about 04:40Z. Every site
-  visit still waits for a session the owner starts, announced once (the "Phase 2" section, part 8).
+  pre-check cap, all passing when run again at a lower load. That build was committed as `6e15314` (04:43Z). **Then**
+  (the last section, "The first session of Phase 2"): the owner approved the broker's allow list and its two fixed
+  prompts for use after tests 6.1 and 6.2, with a merge step to add, switched off (04:51Z), and made installing scripts
+  in the VM browsers a pipeline tool (05:00Z), which the orchestrator built and used for the loader steps in the seven
+  Tampermonkey browsers (05:08 to 06:40Z). **The first session of Phase 2 ran on the five real sites** on the owner's go
+  (16:52Z, its two conditions met), 16:53 to 17:29Z from `6e15314`: 8 of 8 pre-checks, 40 of 40 cells accepted (28 with
+  every check passing), 0 harness failures, no new failure, 5 of 5 recorder loads "same", but **no copy stored**: the
+  privacy scan refused every recorder capture and data record, on the formats' own words and unreplaced SVG title text.
+  Those fixes, and layout groups by what the selectors need for Grok and Perplexity, are built and verified in the
+  simulator, not committed at about 18:40Z; the owner chose that grouping for all five sites (18:17Z), not built yet.
+  The next session (all 45 loads) has the owner's go once the fixes pass their tests and nothing else runs on the Mac.
 - **Frozen:** Navi v12.19 (the published build, byte-identical to `main`): no Navi fixes until Phase 6. The four
   checks of checker 0.3.2 (load, navigate, one jump, one bookmark): no tuning until Phase 5; Phase 1's checker carries
   them unchanged (a test compares the code line by line) and changes only how the checker is delivered and what it
@@ -5319,8 +5328,10 @@ results kept). This block and the last sections are the current state.
 - **Where the browsers run:** three UTM VMs on the MacBook Air, one at a time: **Navi Mac** (macOS 26.6.2: Safari +
   Userscripts 4.8.6, Chrome + Tampermonkey 5.5.1, Firefox + Tampermonkey 5.5.0), **Navi Windows** (Windows 11 ARM64:
   Chrome, Edge, Firefox, each with Tampermonkey) and **Navi Linux** (Ubuntu 26.04 aarch64: Chromium, Firefox, each
-  with Tampermonkey). Every browser holds Navi v12.19, the owner's sign-ins on all five sites and, since 2026-11-19,
-  Phase 1's checker shell 1.0.0 in place of checker 0.3.2 (the same four checks, unchanged). Since 2026-11-19 (19:32Z)
+  with Tampermonkey). Every browser holds the owner's sign-ins on all five sites and, since 2026-11-19, Phase 1's
+  checker shell 1.0.0 in place of checker 0.3.2 (the same four checks, unchanged). Safari holds Navi v12.19 as its
+  normal install; since 2026-11-21 (05:08 to 06:40Z) the seven Tampermonkey browsers hold the Navi loader instead of
+  the normal Navi, and it serves v12.19 proven by hash. Since 2026-11-19 (19:32Z)
   Navi Mac's screen is pinned at 1118x819 and Navi Linux's at 1608x882, both at scale 1, in UTM's settings; Navi
   Windows' screen follows its window's size (1107x857 at 100%). The macOS test user
   **Navi Test** is frozen (its Safari cannot render in a background session); the build plan's decision 1 keeps it
@@ -5328,7 +5339,9 @@ results kept). This block and the last sections are the current state.
 - **Tooling (private repo `ai-conversation-navigator-private-lab`):** Experiment 1's pipeline is `exp1/` (kept as the
   record: `exp1/receiver.js`, `exp1/navi-checker.user.js`, `exp1/run-stage.js` and the per-VM scripts; how to run
   it: `README.md` and `docs/runbook.md` there; the per-cell record: `docs/experiment-1-results.md`; the structure
-  drift: `docs/exp1-structure-drift.md`). Phase 1's pipeline is `pipeline/` on the Phase 1 branch. Raw reports and
+  drift: `docs/exp1-structure-drift.md`). Phase 1's pipeline is `pipeline/` on the Phase 1 branch; the install tool is
+  on `pipeline/install-tool`, the broker build on `pipeline/broker-merge-step`, and since 2026-11-21 the lab's
+  `docs/STATUS.md` keeps the current state and the owner's steps (the owner's rule of that day). Raw reports and
   captures stay untracked in `local/`. Experiment 1's receiver, left running after the experiment, was stopped on
   2026-11-19 (about 04:35Z); from Phase 1 on each session starts and stops its own receiver.
 - **Public records of this work:** the owner's spec (`docs/specs/live-test-system-spec.md`, superseded in part), the
@@ -5339,28 +5352,35 @@ results kept). This block and the last sections are the current state.
   chats (a probable real bug, reserved by the owner for Phase 6, the first real run); the jump findings of an
   uncalibrated checker (ChatGPT; Grok in Google Chrome and Edge; Safari / Claude), unconfirmed until Phase 5 (both
   kinds seen again in the proof's two runs, "Phase 1: the proof", part 3; per cell across three runs in "Phase 5 notes
-  from Phase 1"); the CI's
+  from Phase 1"; in the first session of Phase 2, 9 changed and 3 unchanged, every ChatGPT jump passing); the CI's
   mock pages are stale on all five sites (Phases 2 and 3); light/dark detection under "auto" (ROADMAP item 15).
-- **Not built yet, or not run for real** (Phase 1 is built and accepted): Phases 2 to 4 have run only in simulation
-  (no copy from a real recorder load yet, no real upkeep, dispatch, admin look or fix check; the loader installed
-  nowhere); the broker for the fix-loop agent, built in dry-run form (`b6f9440`), needs the owner's approval before it
-  is used (the owner answered its choices on 2026-11-20, and reviews the proposal in a Claude Doc before approving its
-  use; its install script has never been run), and the auto-merge switch stays off; the full check list and the
+- **Not built yet, or not run for real** (Phase 1 is built and accepted): Phases 2 to 4 have met the real sites only in
+  the first session of Phase 2 (2026-11-21: the loader in the seven Tampermonkey browsers, five recorder loads and one
+  real upkeep, but no copy stored, so no real CI on a copy, dispatch, admin look or fix check yet); the broker for the
+  fix-loop agent, built in dry-run form (`b6f9440`), is approved by the owner for use only after tests 6.1 and 6.2 pass
+  (04:51Z on 2026-11-21, with a merge step to add, switched off; that build, with the real client also off, is under
+  way; its install script has never been run), and the auto-merge switch stays off; the full check list and the
   calibration (Phase 5; a draft list, `8eef58f`, is with the owner, who moved the list and the long chats back to
   Phase 5 on 2026-11-20). Superseded by the redesign: the schedule,
   WebDriver/remote debugging on AI sites, runner-created canaries, the live-send check, scratch chats.
 - **HANDOFF.md** is the 2026-11-19 handoff. It was written before the build plan arrived: where the two differ, the
   plan is the owner's decision (the owner, 2026-11-18). The differences are listed under "The pipeline build plan",
   "What this changes in the record above".
-- **Open with the owner** (as of about 04:40Z on 2026-11-21; "Before the first session of Phase 2", part 9): approving
-  the broker's use after reviewing the proposal in its Claude Doc (sent 03:58Z: the allow list, the two fixed prompts
-  with D7's read action and D8's list, the owner's three steps, the install script); the answer on choice 11 (the diff
-  and the reason sent 02:32Z); the owner's loader steps (removing the normal Navi and installing the loader in the seven
-  Tampermonkey browsers; the receiver's port free for them since 02:37:01Z), then the orchestrator's pre-check of the
-  eight browsers, then one session on the real sites, which the owner starts, announced once; the orchestrator's
-  decisions D1 to D9 and the lanes' choices, for the owner's review at Phase 5; the final feature check list and the
-  long test chats (Phase 5, the owner's); a re-check of Navi Mac's reopen list (Phase 1's boot check now does it at
-  every boot). **Left open by the owner:** the focus question (20:22Z on 2026-11-19). **Closed:** the broker's choices
+- **Open with the owner** (as of about 18:40Z on 2026-11-21; "The first session of Phase 2", parts 6 and 7; the lab's
+  `docs/STATUS.md` keeps the owner's steps in order): merging PR #97 (the public repo's Claude review skips
+  `loop-fix/` branches, changed from `fix/` on the owner's answer of 18:17Z); after the broker build lands, the install
+  script's dry run, then its run with sudo, the loop's Claude token and the broker's GitHub token, "installed", the
+  owner present for test 6.2, and the one-line switch to the real client; the orchestrator's decisions D1 to D9 and the
+  lanes' choices, for the owner's review at Phase 5; the final feature check list, the long test chats and a
+  hand-checked sample (Phase 5, the owner's); a re-check of Navi Mac's reopen list (Phase 1's boot check now does it at
+  every boot). **Left open by the owner:** the focus question (20:22Z on 2026-11-19). **Closed:** layout groups by what
+  the selectors need on all five sites (the owner, 18:17Z on 2026-11-21: yes, with the content counts kept in each
+  copy's record and Gemini's narrow layout on the "only checked live" list; it changes answer 4a), not built yet; the
+  Perplexity bookmark stays reserved and unfixed until the final run (the owner, 18:34Z); the go for the next session
+  (18:17Z, once the fixes pass their tests and nothing else runs on the Mac); the go for the first session of Phase 2
+  and the install tool's acceptance (16:52Z); the loader steps (done by the install tool on the owner's items 9 and 10
+  of 05:00Z); the broker's allow list and two fixed prompts (approved 04:51Z, for use after 6.1 and 6.2), choice 11
+  (approved 04:51Z, opened as PR #97) and the GitHub token's term (one year); the broker's choices
   1 to 10 and 12 (the owner, 2026-11-20 evening: yes, choice 4 with the release-docs condition, built); the two PR
   labels and the test branch (created by the orchestrator, reported 02:32Z on 2026-11-21); the two questions the proofs
   raised (whether a session regenerates the selector inventory from the build it serves; whether `push.js` runs the
@@ -10358,3 +10378,359 @@ site load nobody counted or a leak of account details):
    recorded here), then the orchestrator's pre-check of the eight browsers on a local page and example.com, then the one
    session on the real sites, which the owner starts, announced once with everything it collects and proves.
 4. At Phase 5: D1 to D9 and the lanes' choices above.
+
+### The first session of Phase 2 (2026-11-21)
+**State and context.** The last build (the section before this one) was committed in the private lab repo as `6e15314`
+(04:43Z on 2026-11-21, branch `pipeline/phase-1-full-session`) and recorded here as `39e2c41`. Two owner messages
+followed, both dated 2026-11-20 by the owner: 04:51:11Z, and at 05:00:07Z the same answers again with items 9 and 10
+added and a new order. They are recorded here only where they bind this section; the rest goes with the work it starts
+(the broker build and the install tool, not yet in this DEC):
+- the broker's allow list and its two fixed prompts are approved for use after the tests of 6.1 and 6.2 pass, with a
+  merge step to add now, switched off; choice 11 is approved, as its own PR on the public repo (it became PR #97); the
+  broker's GitHub token runs for one year;
+- item 7 (the layout groups) is quoted in part 4; item 8 bound the session:
+
+> 8. The real session runs from lab 6e15314.
+>    a. Do the broker work in a separate worktree. Don't change the lab folder's checked-out files until the session
+>    has finished.
+>    b. While a real session runs, run no simulations, test suites or parallel agents on the Mac.
+>    c. The three first attempts that failed: one line on whether "the Mac was overloaded" was measured or is a guess.
+>    No re-investigation.
+
+The orchestrator's line on 8c (04:54Z): the load figures and the error were measured (load averages of 54 to 232 during
+the failed first attempts, 26 to 71 when the re-runs passed; "the receiver did not come up within 10 s"); that the load
+caused the failures is its inference from those numbers, not a measurement.
+
+- items 9 and 10: installing scripts in the VM browsers becomes a kept pipeline tool instead of the owner's step, and
+  "a step is yours if it is only clicks or typing in a VM window, on a page that isn't one of the five AI sites, with
+  no password, passkey or other secret".
+
+Under items 9 and 10 the orchestrator built the install tool (branch `pipeline/install-tool` of the private lab repo:
+clicks and keys in the VM windows, screenshots of the VM windows only, an address typed only after it is read back from
+the screen) and used it for the loader steps in the seven Tampermonkey browsers (05:08 to 06:40Z): the normal Navi
+removed and the loader installed in each. The pre-check of all eight browsers then passed (06:48 to 07:09Z; Navi Mac
+Firefox on its second try, after a frame-rate failure). In one Windows Firefox dry run (about 06:20Z) the tool pressed
+Return on text that was not the intended address, and Firefox sent it to Google as a search from the VM: its check
+looked only for part of the expected address anywhere on the screen. The check was fixed, and no later run repeated it
+(the tool's report, in the orchestrator's resume pack). The owner accepted the tool at 16:52Z (part 1).
+
+Context of every claim in this section, unless a part says otherwise:
+- part 2 is the five real sites, in the three VMs one at a time on the docked display setup, from the lab at `6e15314`:
+  Navi v12.19 through the loader in the seven Tampermonkey browsers and as Safari's normal install, checker shell 1.0.0
+  with logic `d483c5b39beece4f`; the owner present and watching; nothing else running on the Mac (the owner's item 8b);
+- parts 2 to 4 read the session's own records (`summary.md`, `session.json` and the cell records, in the lab's
+  untracked `local/`) for counts, ids, kinds and places only, never page text, chat addresses or anything a scan
+  matched;
+- part 5 is after the session (from 17:32Z): this Mac (macOS 26.6.2, Apple M2), Node 24.22.2, Playwright 1.65.0
+  (Chromium 158.0.8127.18; Firefox 159.0 and WebKit 27.2 in the mock runs), the test driver, mocks and stand-ins,
+  throwaway folders, invented chats and invented identity entries (never the Keychain), `--no-discord`, every simulated
+  run on its own port (never 8790), nothing in the lab's `local/` written, the frozen files unchanged; **simulator, mock
+  and stand-in evidence only, never real-browser evidence. No site.**
+
+The owner's messages are quoted from the orchestrator's session record. The lanes' and the verifier's reports of part 5
+are kept with the orchestrator's session, outside both repos.
+
+**1. The owner's go (the owner's words, dated 2026-11-21; quoted in full).** 16:52:41Z, pasted as one block, with one
+line after it:
+
+> Read your report. The install tool is accepted. Dated 2026-11-21.
+>
+> Go for the session, after two confirmations. If both are fine, start without waiting for me. If either is not, stop
+> and tell me.
+>
+> 1. The session's refusal of "a browser with the normal Navi still installed" uses the check that passed
+> (Tampermonkey's own list), not the column that still says "Navi yes".
+>
+> 2. On AI-site loads the runner doesn't type addresses into the address bar. If it does, it reads the full address
+> back before pressing Return, as the tool now does.
+>
+> During the session:
+>
+> 3. A cell that fails for a harness reason (the receiver heard nothing, a runner error, a slow frame rate) is
+> reported as a harness failure, never as a Navi failure. Give me the count and one line each.
+>
+> After the session, in this order:
+>
+> 4. The results, with the number of copies per site that ended "unconfirmed".
+> 5. One line on what PR #97 is.
+> 6. Resume the broker build.
+> 7. Then finish the install tool: run the setting change once, build the Safari folder path, and apply the read-back
+> check wherever the pipeline types an address.
+
+> and ill also be present for the real sessions and ill be watching too.
+
+The two confirmations, as the orchestrator checked them (16:52:56 to 16:53:28Z; read in the lab's code at `6e15314`,
+not observed in a VM):
+- **1:** the refusal (`pipeline/lib/install-check.js`, in each loader browser's pre-check) reads `naviInstalled`, which
+  the three boot checks take from Tampermonkey's own list of installed scripts (one `@meta#<id>` entry per script, its
+  name and namespace). The older read, Navi's name anywhere in Tampermonkey's storage, is used only when
+  `naviInstalled` was not read, and then it cannot refuse by default. No browser was refused in the session.
+- **2:** the runner's VM driver (`pipeline/lib/driver-vm.js`, `open`) accepts only a plain http(s) address and never
+  types it: in Navi Mac it is the launch argument of `open`, and in Navi Windows and Navi Linux it goes over SSH to the
+  VM's open script on its input, which starts the browser with it (the orchestrator's reading). So no site load of the
+  session types an address.
+- The orchestrator then checked that nothing else ran on the Mac, printed the session's plan without starting anything
+  (`--dry-run`: 45 loads, 40 judged and 5 recorder, the four checks, each load's limit 420 s) and started the session.
+  `session.json` gives 16:53:40Z as its start; the orchestrator's note to the owner said 16:53:28Z, the time its dry
+  run printed. Both are kept.
+
+The second of the orchestrator's two progress notes (17:26:59Z) said that navigation had passed "apart from the four
+ChatGPT cells". That was wrong: no ChatGPT cell and no Navigate check failed in the session. The four marks were the
+Grok jump cells, read off the progress view as checks when its columns are sites. The owner found the mismatch with
+the final list (18:17Z, item 5 in part 6), and the orchestrator corrected it at 18:19Z. Both are kept.
+
+**2. The session's results** (`session-2026-11-21T1653`; the owner's items 3 and 4).
+
+| What | Result |
+|---|---|
+| Time | 16:53:40 to 17:29:14Z, 2130 s (35 min 30 s) |
+| Builds | public Navi v12.19, sha256 `1a46e54a8e104e9b`, commit `221c02c2a807`, fetched from GitHub at the start; every judged cell proved it by hash (Safari by its file); admin build `3fb0afed16d406b5`, its strip check passed; checker shell 1.0.0, logic `d483c5b39beece4f`, inventory `ad0875b0d44eeba7`, generated from the served build |
+| Pre-checks | 8 of 8, each on its first try |
+| Cells | 40 of 40 accepted, 28 with every check passing; 0 stopped, 0 needing sign-in, 0 without a usable report, 0 not judged, 0 not comparable, 0 not visited; every cell signed in; no site objected; the install check refused no browser |
+| Harness failures (item 3) | 0: no cell the receiver did not hear, no runner error, no frame rate below the minimum |
+| Against the baseline | new failures none; fixed none; known 8, the Perplexity bookmark in all eight browsers (reserved for Phase 6) |
+| The jump check (uncalibrated until Phase 5) | 9 changed, 3 unchanged; not judged |
+| Recorder loads | 5 of 5 opened on the admin build, by the rotation (Gemini in Mac Chrome, Claude in Mac Firefox, ChatGPT in Windows Chrome, Grok in Windows Edge, Perplexity in Windows Firefox), each "same result as the public build"; every capture and data record refused by the privacy scan (part 3) |
+| Loads | 45, 9 per site |
+| Copies (item 4) | none stored, so 0 "unconfirmed" on every site |
+| Also | Linux Firefox's clean quit ran inside a session for the first time: 5 of 5 closes by Alt+F4, its main process ending 0.1 to 1.3 s later; no browser held more than one tab at a quit (35 reads; the 35 of Chrome, Edge and Chromium not read, by design); Discord got the end summary in 3 parts (HTTP 204 each); nothing left running |
+
+The 12 cells that did not pass every check (the owner's item 5 in part 6; from `summary.md`):
+
+| Cells | Check | Reading |
+|---|---|---|
+| Perplexity in Mac Safari, Mac Chrome, Mac Firefox, Windows Chrome, Windows Edge, Windows Firefox and Linux Chromium | bookmark | known (reserved for Phase 6) |
+| Perplexity in Linux Firefox | bookmark and jump | bookmark known; jump uncalibrated, pass to fail |
+| Grok in Mac Chrome, Windows Chrome and Windows Edge | jump | uncalibrated, unchanged |
+| Grok in Mac Firefox | jump | uncalibrated, pass to fail |
+
+The jump check's 9 changes against the baseline: ChatGPT fail to pass in six browsers (Mac Safari, Mac Chrome, Mac
+Firefox, Windows Chrome, Windows Edge and Linux Firefox), so every ChatGPT jump passed this session; Claude in Mac
+Safari skip to pass; Grok in Mac Firefox and Perplexity in Linux Firefox pass to fail. They are kept for Phase 5 beside
+the table in "Phase 5 notes from Phase 1".
+
+Items 5 to 7 (17:31:59Z): PR #97 is one line in the public repo's `claude-code-review.yml` that skips the Claude review
+on `fix/` branches, the owner's choice 11, waiting for the owner's merge (part 6 has what changed it); the broker build
+resumed in its own worktree at about 17:32Z; the install tool's finish waits for the broker build.
+
+**3. Why no copy was stored.** The receiver scans every capture and data record on arrival and keeps nothing of a
+refused one but its verdict (kinds and places). All ten files of the five recorder loads were refused, so the upkeep
+had nothing to build from: each of its 12 units read "copy none" with the replacement refused (5 because the unit's
+recorder load was refused, 7 because no recorder load of that layout group ran) and "CI not run (no copy)". Phase 2's
+agreement table on real data and the two reproductions the Phase 2 proof asked for did not run. The causes, from the
+session's records by kind and place only (the scan lane's read, between about 17:35 and 17:54Z):
+
+| | Where the scan refused | What it was |
+|---|---|---|
+| A | every capture (5): "refused: identity at `$.selectors.{key1}`" | one of the selector record's own fixed key names (a word the checker writes, never taken from the page) matched an entry of the owner's identity list under the short-name whole-word rule ("The general model and the Linux Firefox clean quit", part 4) |
+| B | ChatGPT's capture (1 place) and Grok's (3 places), as well: "refused: text at `$.open.html\|…svg[…]>title[0]>#text[0]`" | the text of SVG `<title>` elements (an icon's tooltip text), which the capture had not replaced with filler; for the scan everything inside a `<title>` is raw text, so it is refused as text, as designed |
+| C | every data record (5): "refused: identity at `$.records[0].tag`" | the record batch's own fixed tag of its first record (a value from the format's own list of record tags) matched the same entry |
+
+- **The first account was wrong in its count; both are kept.** The orchestrator's report to the owner (17:31:59Z) and
+  the brief of the workflow that built the fixes (17:32Z) put A on three sites (Gemini, Claude and Perplexity) and B on
+  two. At 17:34:44Z the orchestrator corrected A to all five. The scan lane's read of the records confirmed five and
+  found C, which neither account had named.
+- **What the refusals show** (the orchestrator's reading, 17:34Z): on all five pages the scan found no identity match in
+  page text or attributes; its identity findings were the formats' own words.
+- **The refused files' contents were not kept**, as the receiver was built. So the fixes could not be re-scanned on the
+  five real captures, and their tests use invented captures of the same shape (part 5). The owner's rule of 18:17Z
+  (part 6, item 3) keeps refused captures from now on.
+
+**4. The layout groups, and the decision put to the owner.** The groups the session's upkeep formed (the count reading
+of "Before the first session of Phase 2", part 3.2; from `summary.md`, the 40 accepted judged cells):
+
+| Site | Groups | Members |
+|---|---|---|
+| Gemini | 2 | six wide (the three Mac browsers, Windows Chrome, both Linux browsers); Windows Edge and Windows Firefox narrow |
+| Claude | 2 | the three Mac browsers; the other five |
+| ChatGPT | 2 | Mac Safari, Windows Chrome and Windows Firefox; the other five |
+| Grok | 3 | Mac Safari, Mac Firefox, Windows Firefox and both Linux browsers; Mac Chrome and Windows Edge; Windows Chrome alone |
+| Perplexity | 3 | Mac Safari, Mac Firefox, Windows Chrome and Windows Edge; both Linux browsers; Mac Chrome and Windows Firefox |
+
+Against Phase 1's two proof sessions (the section before, part 4): Gemini, Claude and Grok have the same members;
+ChatGPT now splits 5 and 3 (it was Windows Edge alone in `T2305` and one group in `T2338`); Perplexity's third group is
+now Mac Chrome with Windows Firefox (Mac Chrome was alone in both). Every split, as the orchestrator read the selector
+records (ids and buckets only), comes from content counters inside the answers, not from what Navi needs to find the
+questions and answers: link counts (`a[href]`: L14977, L15024 and L15196, the Summary's `_sumInventoryCodeAndFiles` and
+`_sumScanEntities`), image counts (`img`: L15189 in `_sumScanEntities`, L16539 in `hasContentImage`, L16793 in
+`orbIndexedImages`, L4579 in `ixScan`) and the hidden-text cleaner (`.sr-only`: L7371 in `_cleanText`). Gemini's narrow
+layout shows only as fewer links (8 to 15 against 16 to 31).
+
+The owner's item 7 (04:51Z, dated 2026-11-20 by the owner):
+
+> 7. Layout groups: after the real session, tell me how many copies per site ended "unconfirmed". If Grok's and
+> Perplexity's groups are only small count differences, group on what the selectors need, not on element counts.
+
+The decision the orchestrator put to the owner (17:31:59Z), because it changes the owner's answer 4a of 2026-11-19
+("Rotate the recorder load across browsers, so layout variants such as Gemini's narrow layout get a copy"):
+- **The choice:** group the copies on every site by what each selector needs (found or not, which link of a chain does
+  the work, and exact counts only for the question and answer lists, never the content counters).
+- **The pick:** yes, for all five sites. Gemini's narrow layout then shares one copy with the wide one, and its layout
+  goes on the "only checked live" list.
+- **The reason:** today the narrow layout changes no selector Navi needs, so a second copy would test nothing new.
+- **Until the owner answered:** built for Grok and Perplexity, as the owner's item 7 says, and a setting, off, for the
+  other three (part 5.4).
+
+**The owner's answer** (18:17:30Z, dated 2026-11-21; item 1 of the message quoted in part 6): "Need-based grouping for
+all five sites: yes. Keep the content counts (links, images, hidden text) recorded in each copy's record. They don't
+decide groups, but the Phase 5 checks for Summary and the image gallery will need them. Gemini's narrow layout goes on
+the "only checked live" list." So answer 4a's rotation stays (one recorder load per site per session, rotated over the
+seven Tampermonkey browsers), while a layout variant that changes no selector Navi needs no longer gets a copy of its
+own. Built when this was written: the needs reading for Grok and Perplexity only (part 5.4). The other three sites, the
+content counts in each copy's record and the "only checked live" entry come next (the lab's `docs/STATUS.md`).
+
+Measured on the session's records with the needs reading (read only; the layout lane, checked by the verifier): Grok
+1 group, Perplexity 1, and 1 on each of the other three sites; every recorder load matches its group under both
+readings.
+
+**5. The fixes and their verification** (one workflow of Opus agents, 17:32 to about 18:31Z: three lanes on disjoint
+files, then a verifier, the only writer after them, who integrated the lanes and made one repair; the lab at `6e15314`
+plus the working tree, 11 files changed and 1 new, **not committed when this was written**; the context is the third
+item of this section's context list). Each change has a test that fails on `6e15314` (a `git archive` copy with the new
+tests dropped in) and passes now.
+
+**5.1 The format's own key names (A; the scan lane: `pipeline/capture/scan.js`, its README,
+`unit-scan-names.test.js`).** The scan holds capture v2's fixed keys as a tree by path, matching what
+`lib/formats.js validateCapture` outputs (the selector record's 12 keys under `$.selectors`, the box keys under the
+geometry). The tree applies only to a capture v2 root: `format` 2, every key a capture key. On a fixed key at its own
+path, only the key's name skips the identity, email and literal tests. The id tests stay, and every value, every key
+elsewhere (page-derived keys, attribute names, ids used as keys) and every key of any other root keeps every test; an
+option turns the rule off. Tests: 5 new, all red on `6e15314` (the fixed key with a matching invented entry gives
+`['$.selectors.{key1}']` there), green now. A replay of the five measured verdicts on invented captures of the same
+shape gives exactly the session's lines on `6e15314`, and now `ok` for Gemini, Claude and Perplexity, while ChatGPT and
+Grok keep only their title lines.
+
+**5.2 Title and desc text in place (B; the SVG lane: `pipeline/checker/logic.js` outside its FROZEN block,
+`pipeline/ci/build-fixture.js`, `pipeline/test/mock-kit.js`, `run-mocks.js`, `unit-ci-builder.test.js`).** Text below
+a `<title>` or `<desc>` (matched by local name: any namespace, any depth) gets no slot and no `texts` entry. It is
+written into the page in place as filler of its own length: the first piece of a run carries the stand-ins'
+two-letter code and `x`, a piece right after another only `x`, whitespace becomes spaces. A slot cannot be used there:
+inside a title it reads as text to the scan, and the format needs exactly one `texts` entry per slot. The number and
+order of slots and entries are unchanged. The builder writes such text back as itself (`slotForm`); its output for
+captures without it is byte for byte as before, so its version stays 2. **The checker logic hash is now
+`93bfdc10018e5d58`** (was `d483c5b39beece4f`); the shell 1.0.0 and the FROZEN block are unchanged (`unit-checker-frozen`
+5 of 5), so nothing is reinstalled in the VMs. Tests: the builder's new test is red on `6e15314` ("DIFFERS at 1098") and
+green now. Two new mock specs, ChatGPT's and Grok's record loads with five invented titles and descs added: on
+`6e15314` both are refused in the session's shape and keep none of the planted elements; now both pass in Chromium,
+Firefox and WebKit (6 of 6, the contract 13 of 13), and the builder's self-check passes on those six captures (the
+`6e15314` builder: "DIFFERS"). The round trip for ChatGPT and Grok in Chromium still passes. `run-mocks.js` was not on
+the lane's list; the lane put the specs there as the test of `mock-kit.js` (the lane's choice).
+
+**5.3 The record batch's own tags (C; the verifier's repair: `scan.js`, one added export `RECORD_TAGS` in
+`pipeline/lib/formats.js`, the capture README, `unit-scan-names.test.js`).** With A fixed, every data record was still
+refused, so no copy could be stored (`upkeep/run.js` refuses a replacement when a data batch did not scan clean). A
+value is now exempt from the identity, email and literal tests only at exactly `$.records[<i>].tag` of a record batch
+(a root whose keys are only `records` and `pairs`), and only when it equals one of the format's record tags. The id
+tests stay; the same value anywhere else, and any root with another key, gets every test; the same option turns it
+off. Test: "record tags", red on `6e15314` with exactly the session's line, green now.
+
+**5.4 Layout groups by what the selectors need (the layout lane: `pipeline/upkeep/layout.js`, its README, the new
+`unit-layout-needs.test.js`).** On a site in `NEEDS_SITES`, a constant in `layout.js` (Grok and Perplexity), a group's
+reading is taken per selector id from the inventory's method and owner: the exact count bucket only for the question
+and answer lists (`getUserMessages`, `getAIMessages`, the index adapters' lists) and the chains' counts; found or none
+for every other selector; each chain's winning link as before; the content counters (the Summary's, the gallery's, the
+image checks', the text cleaners') left out. An id the inventory does not list, and a record whose inventory is not
+known, read the count way, so they can split a group but never merge one. The change test's own reading is unchanged.
+Tests: 9, of which 8 are red on `6e15314`; all green now.
+
+| Run | Result |
+|---|---|
+| Each changed test file alone, on the integrated tree (the verifier) | `unit-scan` 23 of 23; `unit-scan-names` 14 of 14 (6 new, all red on `6e15314`); `unit-record-role` 18 of 18; `unit-formats` 37 of 37; `unit-checker-frozen` 5 of 5; `unit-checker-build` 12 of 12; `unit-ci-builder` 10 of 10 (1 new, red on `6e15314`); `unit-recorders-builder` 4 of 4; `unit-layout-needs` 9 of 9 (8 red on `6e15314`); `unit-copies` 8 of 8; `unit-upkeep-run` 25 of 25 |
+| The two SVG mock specs | pass in Chromium (the verifier) and in all three engines (the lane) |
+| One simulated session, the tree against `6e15314`, side by side (the verifier: `--driver sim --no-discord`, ports 47961 and 47962, an invented identity entry of the form that matched, the public build `1a46e54a` as the stand-in, each with a scratch copies lab whose remote is a local bare repo) | both exit 0 (830 s; 772 s); in both, 8 of 8 pre-checks, 40 of 40 accepted with every check passing and 5 of 5 recorder loads "same"; all 62 cell records identical in check results, checker errors, stale flags and selector counts; "Against the baseline" identical. **Changed, as intended:** the five captures `refused: identity at $.selectors.{key1}` → `ok`, kept; the five data records `refused: identity at $.records[0].tag` → `ok`, usable; five copies stored (one commit of 31 files on `ci-copies` in the scratch lab; the bare remote untouched, nothing pushed); 20 table rows copy none → ok, CI none → pass, routes not-comparable → pass-pass; Grok's and Perplexity's group names changed with the needs reading (one group each in the test driver either way); the upkeep 1 s → 56 s. Gemini has 2 groups in both (Safari alone: the test driver's known split, the section before, part 6) |
+| The lanes' own simulated sessions | the scan lane (port 47823, 12 min 47 s): 8 of 8, 40 of 40, 5 of 5 "same", all five captures `ok`, the data records still refused at the tag (before C); the SVG lane (port 47933, 12 min 47 s): 8 of 8, 40 of 40 with every check passing, 5 of 5 "same", all five captures `ok`; the layout lane's: not reported |
+
+**Not shown, or not working:**
+- **B is not exercised by a simulated session:** the test driver's mock pages have no SVG `<title>`, so the sessions
+  show only that B breaks nothing. B's evidence is the two mock specs and the builder test.
+- **Camel-case SVG tag names** (the SVG lane, found while testing; nothing changed): the capture lowercases tag names
+  (`clippath`), while jsdom, which the builder uses, gives SVG's camel-case names (`clipPath`, `linearGradient`). So the
+  builder's structure check would say "DIFFERS" on any real capture holding such an element, and that copy would not be
+  built (a visible refusal, never a wrong copy). Not measured on a real capture: **it can matter for the next session.**
+- A `<title>` holding child elements (possible in SVG) is still refused, because the scan reads the tags inside as text;
+  `<textarea>` contents the same. On Gemini a title inside a message would put filler outside the message's text
+  stream, and that turn would come out "cannot build" (visible). The verifier saw these residuals cut off in the lane's
+  report; the full report names them as here.
+- **The broker's outgoing scan** (`pipeline/broker/lib/scan.js`, in the broker build's worktree) was not checked for
+  the same fixed key and tag.
+- **One layout test can pass silently:** in `unit-layout-needs.test.js` the committed-inventory test returns without
+  asserting once the inventory hash moves past `ad0875b0d44eeba7`.
+- **The layout lane never returned its report:** the verifier checked the lane's tests (red on `6e15314`, green now)
+  and its numbers on the real session; the lane's own simulated session is unaccounted for.
+- **More simulated sessions ran than the owner's verification rule names** (one plus the tests of what changed): one in
+  each of two lanes, an unreported one in the third, and the verifier's pair; each on its own port, after the session.
+
+**6. The owner's answers after the results (the owner's words, dated 2026-11-21; quoted in full).** 18:17:30Z:
+
+> Read the session results. Dated 2026-11-21.
+>
+> 1. Need-based grouping for all five sites: yes. Keep the content counts (links, images, hidden text) recorded in
+> each copy's record. They don't decide groups, but the Phase 5 checks for Summary and the image gallery will need
+> them. Gemini's narrow layout goes on the "only checked live" list.
+>
+> 2. PR #97: I won't merge it as written. My own branches use fix/ (fix/v12.15-..., fix/v12.16-...), so it would skip
+> the Claude review on my ordinary fix PRs.
+>    a. Give the loop's public branches their own prefix, loop-fix/<job>, in the broker's allow list and everywhere
+>    else it appears.
+>    b. Change the PR's condition to that prefix.
+>    c. Check the lab's ci-fix/ prefix against my existing lab branches the same way.
+>
+> 3. Refused captures: stop deleting them. Keep each one in a folder on the Mac that only my account can read, never
+> pushed, deleted after 7 days. After a fix to the scan or the capture, re-run the scan on the kept ones first, so a fix
+> is proven without new site loads.
+>
+> 4. The next session:
+>    a. If the agreement table can use today's 40 judged results with new recorder captures, run the five recorder
+>    loads only. If it needs judged cells from the same session, say why in one line and run the full 45.
+>    b. You have my go for that one session, once both fixes pass their tests and nothing else is running on the Mac.
+>    Post a Discord note five minutes before it starts, then start it.
+>
+> 5. The final report left out four cells. Mid-session you said navigation failed on four ChatGPT cells; the final list
+> has only the 8 Perplexity cells. List the 12 cells that didn't pass every check, each with its check and whether it
+> is known, new or not judged.
+>
+> 6. Then continue as planned: the broker build, then the install tool's leftovers.
+>
+> 7. Claude in chat can now read the lab repo, so I can stop pasting your reports.
+>    a. Keep one file in the lab repo, docs/STATUS.md: where the build stands, what is running, your open questions for
+>    me, and my steps still to do.
+>    b. Each time you report to me, write the same report to docs/reports/<date>-<topic>.md, update STATUS.md, and push
+>    the branches you worked on, including the broker's and the install tool's.
+>    c. End each report to me with the commit and the report's path.
+>    d. The repo rules still hold: nothing about the test accounts, no addresses, no secrets.
+
+What the orchestrator answered and did (18:19 to 18:35Z, from its messages and the lab's reports):
+- **Item 2:** PR #97 changed to `loop-fix/` (its head `b57cc50`), so the owner's own `fix/` branches keep the Claude
+  review; the loop's public branches become `loop-fix/<job>` with the broker build. No lab branch starts with `ci-fix/`
+  or `fix/`, locally or on GitHub; the lab's `ci-fix/` still becomes `loop-ci-fix/<job>`, so that every loop branch in
+  both repos starts with `loop-`.
+- **Item 3:** built next, with need-based grouping for all five sites. Today's five refusals were discarded before the
+  rule, so it is first shown on the next refusals.
+- **Item 4a:** the next session needs all 45 loads, because the copy gate confirms a recorder capture against the same
+  session's judged cells of that site and layout; with recorder loads alone, every copy would be "unconfirmed".
+- **Item 5:** the 12 cells (part 2), with the correction of part 1.
+- **Item 7:** the lab's `docs/STATUS.md` and `docs/reports/`, the first report at `0d68683`.
+- **Also:** the broker build was paused at about 18:19Z, to keep the Mac quiet for the next session, and resumed at
+  about 18:32Z with the prefix rename.
+
+Two more owner messages followed. At 18:30:36Z the owner asked that the next run test the whole system end to end, run
+by the system and not by the orchestrator: the CI upkeep, the CI fix loop and the code fix loop through Tiers 1 to 3,
+Codex, a branch, a PR and the babysit cycle, to a Discord message. The orchestrator's answer (18:31Z) named what stands
+between: the rest of the broker build, the owner's install and token steps, and tests 6.1 and 6.2. It put two
+decisions: lifting the Perplexity bookmark reserve for that run, and holding the next session until the loops are
+ready. At 18:34:10Z the owner kept the Perplexity bookmark reserved and unfixed until the final run, so that the code
+fix loop meets it then, and asked for every step of the owner's in order. That list is the lab's
+`docs/reports/2026-11-21-owner-steps-for-the-automatic-run.md` (`e8bb2db`). The second decision has no answer in words,
+and the lab's `docs/STATUS.md` keeps the next session under the go of 18:17Z.
+
+**7. What waits** (as of about 18:40Z):
+1. **Before the next session:** need-based grouping for all five sites with the content counts in each copy's record
+   and Gemini's narrow layout on the "only checked live" list; refused captures kept for 7 days in an owner-only folder,
+   with the scan re-run on them after a fix; the fixes of part 5 committed. Then the next session, all 45 loads, under
+   the owner's go of 18:17Z, with a Discord note five minutes before it starts.
+2. **The broker build** (the merge step and the real client, both off, the token source and its expiry warnings, the
+   `loop-` prefixes), then the install script's dry-run command for the owner; then the install tool's leftovers (the
+   owner's item 7 in part 1).
+3. **The owner's steps** in the order of the lab's list: merging PR #97; the install script's dry run, then its run
+   with sudo; the two tokens; "installed", then the orchestrator's tests 6.1 (test 9 first, reported at once) and the
+   owner present for 6.2; the one-line switch to the real client; Phase 5's list, long chats and hand-checked sample.
