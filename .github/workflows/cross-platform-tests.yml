@@ -14,6 +14,9 @@ name: Cross-Platform Tests
 # scroll, storage or scan timing that varies by engine (webkit is Safari's); ubuntu only, since the runner OS adds
 # nothing to an engine question and Windows and macOS carry documented flake modes (DEC-036; TESTING.md).
 # History of the caps and the install stalls: ROADMAP 0e.
+# Retries (the owner, 2026-11-21; DEC-066): the suite and the probe lanes run a failed entry or probe once more
+# themselves (FLAKY when that passes, with a ::warning annotation), and ci-rerun.yml re-runs a run's failed jobs once
+# when its first attempt fails and logs every flake in the "CI flake log" issue (TESTING.md "Retries and flakes").
 
 on:
   push:
