@@ -3315,6 +3315,17 @@ function timingReadings(detail) {
 // or red by itself.
 const RETRY_SELFTEST = process.env.ACN_RETRY_SELFTEST || '';
 function retrySelfTestFault(result, platform, selected, attempt) {
+    // THROWAWAY PROOF of ci-rerun.yml (the owner's item 3b, 2026-11-21). This commit lives only on the branch
+    // proof/ci-rerun-2026-11-21 and is never merged: on GitHub run attempt 1, the chromium leg on ubuntu fails one
+    // planted test (on both in-job runs, so the harness calls it GENUINE); attempt 2 passes it.
+    if (process.env.GITHUB_HEAD_REF === 'proof/ci-rerun-2026-11-21' && process.env.RUNNER_OS === 'Linux' &&
+        parseBrowserArg().join(',') === 'chromium' && platform === selected[0]) {
+        const first = process.env.GITHUB_RUN_ATTEMPT === '1';
+        result.tests.push({ testName: 'PROOF: planted failure on run attempt 1 only',
+            status: first ? 'FAIL' : 'PASS',
+            detail: first ? 'planted for the ci-rerun.yml proof (run attempt 1)' : 'passes on run attempt 2' });
+        if (first) result.passed = false;
+    }
     if (!RETRY_SELFTEST || platform !== selected[0]) return;
     if (RETRY_SELFTEST === 'vanish' && attempt !== 1) return;
     if (RETRY_SELFTEST === 'first' && attempt !== 1) {
