@@ -5244,7 +5244,7 @@ owner's, committed as `6911977`). Public docs on `ci/live-verification-layer`; a
 proves a change is needed, which would stop for the owner (spec). **Replaces** the "live verification layer (the next
 spec)" placeholder in ROADMAP and the 2026-11-12 handoff's "spec 1, a built-in self-test", which the owner rejected.
 
-### Where this stands (2026-11-21, about 18:40Z; Phases 2 to 4 built and proven in the simulator; the first session of Phase 2 run on the five real sites, 16:53 to 17:29Z, with no copy stored; its capture fixes built and verified in the simulator, not committed): read this first
+### Where this stands (2026-11-24, about 07:15Z; Phases 2 to 4 built and proven in the simulator; the first session of Phase 2 run on the five real sites on 2026-11-21 with no copy stored, its fixes since landed; the pipeline in the private lab repo's main since 2026-11-23, lab PRs #1 to #8 merged in order; the broker installed, in dry run; the owner home again): read this first
 This DEC is a running, chronological record (each section dated; corrections stay next to what they correct, both
 results kept). This block and the last sections are the current state.
 - **Status:** Experiment 1 is complete (2026-11-19 02:08Z): **40 of 40 page loads accepted**, signed in to the test
@@ -5320,7 +5320,20 @@ results kept). This block and the last sections are the current state.
   privacy scan refused every recorder capture and data record, on the formats' own words and unreplaced SVG title text.
   Those fixes, and layout groups by what the selectors need for Grok and Perplexity, are built and verified in the
   simulator, not committed at about 18:40Z; the owner chose that grouping for all five sites (18:17Z), not built yet.
-  The next session (all 45 loads) has the owner's go once the fixes pass their tests and nothing else runs on the Mac.
+  The next session (all 45 loads) had the owner's go once the fixes passed their tests and nothing else ran on the Mac.
+  **Since then** (the last section, "2026-11-21 to 11-23"): the fixes landed; the copy-collecting session refused at
+  its start (20:08Z, the built-in screen only), and the owner, traveling, withdrew its go, set travel rules and moved
+  the first fully automatic run before Phase 5, with the Perplexity bookmark reserve lifted for that run only; PR #98
+  (DEC-066) was merged and its re-run proven on PR #99, and PR #100 was merged; one short session ran at the owner's
+  request on 2026-11-22 (Navi Mac Safari's five loads, stopped cleanly); lab PR #1, the pipeline into the lab's main,
+  was merged on 2026-11-23 after three review cycles (42 Codex findings: 41 fixed, 1 logged). **Then** (its dated
+  continuation, "2026-11-23 evening to 11-24"): lab PRs #2 to #8 were merged in order, each caught up with main and
+  every Codex finding fixed (15, all P2), with an independent verification of main between them (unit suite and full
+  chain passing; test driver and mocks only); the owner installed the broker (dry run, merge step off), stored the two
+  tokens, both verified, and came home (2026-11-24); test 9 of 6.1 could not run as written, and trying it found a
+  launcher bug that would have refused every loop run; a root updater and a test-only probe kind are being built under
+  the owner's rules, and the owner's one sudo run waits for both. No copy is stored yet, and tests 6.1 and 6.2 have not
+  run.
 - **Frozen:** Navi v12.19 (the published build, byte-identical to `main`): no Navi fixes until Phase 6. The four
   checks of checker 0.3.2 (load, navigate, one jump, one bookmark): no tuning until Phase 5; Phase 1's checker carries
   them unchanged (a test compares the code line by line) and changes only how the checker is delivered and what it
@@ -5339,8 +5352,10 @@ results kept). This block and the last sections are the current state.
 - **Tooling (private repo `ai-conversation-navigator-private-lab`):** Experiment 1's pipeline is `exp1/` (kept as the
   record: `exp1/receiver.js`, `exp1/navi-checker.user.js`, `exp1/run-stage.js` and the per-VM scripts; how to run
   it: `README.md` and `docs/runbook.md` there; the per-cell record: `docs/experiment-1-results.md`; the structure
-  drift: `docs/exp1-structure-drift.md`). Phase 1's pipeline is `pipeline/` on the Phase 1 branch; the install tool is
-  on `pipeline/install-tool`, the broker build on `pipeline/broker-merge-step`, and since 2026-11-21 the lab's
+  drift: `docs/exp1-structure-drift.md`). Phase 1's pipeline is `pipeline/`, with the install tool and the broker
+  build, on the lab's `main` since 2026-11-23 (lab PR #1, `29a05e8`; before that on the Phase 1 branch,
+  `pipeline/install-tool` and `pipeline/broker-merge-step`; lab PRs #2 to #8 since, the last merged as `8d18c5b` on
+  2026-11-24), and since 2026-11-21 the lab's
   `docs/STATUS.md` keeps the current state and the owner's steps (the owner's rule of that day). Raw reports and
   captures stay untracked in `local/`. Experiment 1's receiver, left running after the experiment, was stopped on
   2026-11-19 (about 04:35Z); from Phase 1 on each session starts and stops its own receiver.
@@ -5358,26 +5373,39 @@ results kept). This block and the last sections are the current state.
   the first session of Phase 2 (2026-11-21: the loader in the seven Tampermonkey browsers, five recorder loads and one
   real upkeep, but no copy stored, so no real CI on a copy, dispatch, admin look or fix check yet); the broker for the
   fix-loop agent, built in dry-run form (`b6f9440`), is approved by the owner for use only after tests 6.1 and 6.2 pass
-  (04:51Z on 2026-11-21, with a merge step to add, switched off; that build, with the real client also off, is under
-  way; its install script has never been run), and the auto-merge switch stays off; the full check list and the
+  (04:51Z on 2026-11-21, with a merge step to add, switched off; that build, with the real client also off, is in the
+  lab's main since 2026-11-23, and was installed by the owner that day with both still off), and the auto-merge
+  switch stays off; the full check list and the
   calibration (Phase 5; a draft list, `8eef58f`, is with the owner, who moved the list and the long chats back to
   Phase 5 on 2026-11-20). Superseded by the redesign: the schedule,
   WebDriver/remote debugging on AI sites, runner-created canaries, the live-send check, scratch chats.
 - **HANDOFF.md** is the 2026-11-19 handoff. It was written before the build plan arrived: where the two differ, the
   plan is the owner's decision (the owner, 2026-11-18). The differences are listed under "The pipeline build plan",
   "What this changes in the record above".
-- **Open with the owner** (as of about 18:40Z on 2026-11-21; "The first session of Phase 2", parts 6 and 7; the lab's
-  `docs/STATUS.md` keeps the owner's steps in order): merging PR #97 (the public repo's Claude review skips
-  `loop-fix/` branches, changed from `fix/` on the owner's answer of 18:17Z); after the broker build lands, the install
-  script's dry run, then its run with sudo, the loop's Claude token and the broker's GitHub token, "installed", the
-  owner present for test 6.2, and the one-line switch to the real client; the orchestrator's decisions D1 to D9 and the
+- **Open with the owner** (as of about 07:15Z on 2026-11-24; the last section's continuation, part 14; the lab's
+  `docs/STATUS.md` keeps the owner's steps in order): the one sudo run, once the updater and probe PRs merge, with the
+  commit and the hashes given first for the owner's Claude chat; the owner's word for test 9; the switch to the real
+  client after 6.1; the owner present for test 6.2; a new go for the copy session, then for the first fully automatic
+  run. (Before 2026-11-24 this list held the install, the two tokens and the fifth Keychain item: the install ran on
+  2026-11-23, the owner chose the helper for the fifth item, which filled it (5 chat ids, 0 org, 0 account), and the
+  tokens were stored and verified on 2026-11-24.) Also open: the orchestrator's
+  decisions D1 to D9 and the
   lanes' choices, for the owner's review at Phase 5; the final feature check list, the long test chats and a
   hand-checked sample (Phase 5, the owner's); a re-check of Navi Mac's reopen list (Phase 1's boot check now does it at
-  every boot). **Left open by the owner:** the focus question (20:22Z on 2026-11-19). **Closed:** layout groups by what
+  every boot). **Left open by the owner:** the focus question (20:22Z on 2026-11-19). **Closed:** on 2026-11-23 and
+  11-24 (the continuation, part 10): lab PRs #2 to #8, merged in order at the owner's word; iCloud (side-projects stays
+  synced, accepted by the owner) with the two start checks, built; the demo session kept out of every baseline and
+  comparison; the travel rules, lifted with the owner home; option (a), the root updater, with the owner's four rules;
+  the probe kind, approved test-only with its conditions. Lab PR #1 (merged at the owner's word, 18:29Z on
+  2026-11-23); PRs #97, #98 and #100 (merged at the owner's word, 2026-11-21) and the
+  proof of `ci-rerun.yml` (PR #99, closed unmerged); the owner's travel rules, the new order and the built-in-display
+  fallback as "later" (20:40Z on 2026-11-21); the push scan's design and the review cycles' stop rule (dated
+  2026-11-21, sent 02:01Z on 2026-11-22); layout groups by what
   the selectors need on all five sites (the owner, 18:17Z on 2026-11-21: yes, with the content counts kept in each
-  copy's record and Gemini's narrow layout on the "only checked live" list; it changes answer 4a), not built yet; the
-  Perplexity bookmark stays reserved and unfixed until the final run (the owner, 18:34Z); the go for the next session
-  (18:17Z, once the fixes pass their tests and nothing else runs on the Mac); the go for the first session of Phase 2
+  copy's record and Gemini's narrow layout on the "only checked live" list; it changes answer 4a), built since; the
+  Perplexity bookmark stays reserved and unfixed until the final run (the owner, 18:34Z), and is lifted for the first
+  fully automatic run, now before Phase 5 (20:40Z); the go for the next session (18:17Z, once the fixes pass their tests
+  and nothing else runs on the Mac), withdrawn by the owner at 20:40Z while traveling; the go for the first session of Phase 2
   and the install tool's acceptance (16:52Z); the loader steps (done by the install tool on the owner's items 9 and 10
   of 05:00Z); the broker's allow list and two fixed prompts (approved 04:51Z, for use after 6.1 and 6.2), choice 11
   (approved 04:51Z, opened as PR #97) and the GitHub token's term (one year); the broker's choices
@@ -5388,8 +5416,8 @@ results kept). This block and the last sections are the current state.
   finding (02:33Z on 2026-11-20: the loader
   only, in the seven Tampermonkey browsers; no recorder load in Safari); the privacy scan's name and email, typed into
   the Keychain by the owner (reported 05:57Z); the morning nudge, installed by the owner (reported 02:42Z); Codex
-  review on the private lab repo, switched on by the owner (reported 02:42Z; the proof will be Codex's comment on the
-  first private-repo PR; the steps, item 21, are in "Phase 1 accepted, and the owner's go for Phase 2 with the
+  review on the private lab repo, switched on by the owner (reported 02:42Z; shown working by Codex's reviews of lab
+  PR #1, 2026-11-21 to 11-22; the steps, item 21, are in "Phase 1 accepted, and the owner's go for Phase 2 with the
   answers", part 4); the go for Phase 2 (02:18Z on 2026-11-20, with the answers);
   the owner's go for Phase 1's proof, given by starting it, and
   Navi Windows Firefox's Externals setting, set to "Always" by the owner (reported 21:24:56Z; "Phase 1: the proof",
@@ -10302,6 +10330,17 @@ at load about 117, the receiver took 13 s with the selector inventory rebuilt fr
 already in `2dcc15e`), against 1 s without it, while `session.js` waits a fixed 10 s. Not repaired; the part then
 started each session only below load 45.
 
+**Note, dated 2026-11-24** (the full chain run again on the lab's main at `b220d5f` by the independent verification
+of main, in the continuation "2026-11-23 evening to 11-24", part 11.1; the test driver and the same narrow stand-in,
+never a real browser; both results kept): **B1 and B2 now show one Gemini layout group where the rows above record
+two.** With the stand-in
+planted in Windows Edge and Windows Firefox, B1 read "layouts of gemini: 1" (all five browsers in one group) and stored
+the Gemini copy from Windows Firefox, agreeing with the other four; B2 found that copy by reading, the CI 4 of 4; the
+Discord list "only checked live" had 14 items (13 before). Not a regression: these are the owner's need-based layout
+groups of 2026-11-21 (built in `3ec6b6c`, "2026-11-21 to 11-23", part 2.1), which group the browsers by what the
+selectors need and put Gemini's narrow layout on the "only checked live" list instead of giving it a copy of its own.
+The rows above stay as what the chain of 2026-11-21 recorded.
+
 The Phase 4 proof (the chain script, a scratch copy with one option added so that the stub fix also edits
 `CHANGELOG.md` and `DOM-REFERENCE.md` and adds a new review file):
 
@@ -11066,6 +11105,776 @@ whose tests 22 to 24 are the merge step's live proof; the one change to the real
 mismatch, both kept:** that list, like part 7 of the section before, puts the one change after 6.2, while the
 proposal's 6.2 runs the merge proof "after 6.1 has passed and `settings.json` says `"real"`". By the proposal, the one
 change comes between 6.1 and 6.2. The merge switch stays off until the owner turns it on, after 6.2's merge proof.
+
+### 2026-11-21 to 11-23: the owner's decisions while traveling, the first session of Phase 2's follow-ups, the CI retry, and lab PR #1
+**State and context.** The two sections before end at about 18:40Z and 19:12Z on 2026-11-21. This one runs from there
+to the merge of lab PR #1 at 18:29:08Z on 2026-11-23. Context of every claim, unless a part says otherwise:
+- the owner's words: quoted from the orchestrator's session record, extracted again word for word on 2026-11-23 (the
+  resume pack's file of the owner's messages ends at 18:49Z on 2026-11-21). Times are when a message arrived, in UTC.
+  Where the owner dated a message, that date is kept; it can be the day before the UTC date of arrival;
+- the private lab repo: its reports of 2026-11-21 and 2026-11-22 (`docs/reports/`), its `docs/STATUS.md` and its
+  commits, read on 2026-11-23; the orchestrator's read-only recheck of lab PR #1 and the install tool's report, both
+  kept with the orchestrator's session, outside both repos;
+- GitHub: PRs #97 to #100, issue #101, the CI runs named below, lab PR #1 and Codex's comments on it, read through
+  GitHub's API on 2026-11-23;
+- the pipeline's evidence is unit tests, mocks, stand-ins and the simulator on this Mac, **never a real browser**,
+  except where a part names a session on the real sites. One such session ran in this period (part 2.3); one more was
+  refused before anything started (part 2.2).
+
+**1. The first session of Phase 2, in counts** (`session-2026-11-21T1653`, 16:53 to 17:29Z on 2026-11-21, from lab
+`6e15314`, the docked setup, the owner present; the full record is "The first session of Phase 2"): 8 of 8 pre-checks;
+40 of 40 cells accepted, 28 with every check passing; 0 harness failures; no new failure; 8 known, the Perplexity
+bookmark in all eight browsers, reserved by the owner; the jump check uncalibrated and not judged (9 changed and 3
+unchanged against the baseline); 5 of 5 recorder loads with the same result as the public build; 45 loads, 9 per site.
+**No copy was stored:** the privacy scan refused all five recorder captures and their data records, for causes in the
+pipeline's own code, not in the pages: the formats' own fixed key name and record tag matched the identity list's
+short-name rule, and the text of SVG `<title>` elements had not been replaced with filler. In all five pages the scan
+found neither the account's name nor its email.
+
+**2. The first session's follow-ups.**
+
+**2.1 The fixes landed** (the lab's branch `pipeline/phase-1-full-session`; test driver and mocks only).
+- `114b92d` (18:47Z): the scan skips the identity, email and literal tests only for the capture format's own fixed key
+  names at their own place, and for the record batch's own tags at exactly their place; text inside SVG and HTML
+  `<title>`/`<desc>` is written as filler of its own length; need-based layout groups for Grok and Perplexity. The
+  checker logic hash became `93bfdc10018e5d58` (was `d483c5b39beece4f`); the shell 1.0.0 and the FROZEN block are
+  unchanged, so nothing was reinstalled in the VMs. Verified: the changed tests (61 of 61), and one simulated session
+  with an invented identity entry of the form that matched, which stores the five copies that `6e15314` refuses.
+- `3ec6b6c` (20:02Z): need-based layout groups for all five sites (the owner's answer of 18:17Z), with the content
+  counts (links, images, hidden text) kept in each copy's record and Gemini's narrow layout on the "only checked live"
+  list (now 14 areas); refused captures and data records kept 7 days in a folder on the Mac that only the owner's
+  account can read (folders 700, files 600, never in a pushed path), and scanned again at the next session start after
+  a scan or capture change; a recorder capture refused by the pipeline's own code becomes one CI-fix job, which stops
+  "stuck, needs you" because such a fix is outside the CI fix loop's allowlist (the owner's choice 1), while a refusal
+  for an identity in page content is reported only, never a job. Verified: 30 unit test files, and one simulated
+  session with a planted refusal by the old scan.
+
+**2.2 The copy-collecting session refused at its start.** Under the owner's go of 18:17Z ("once both fixes pass their
+tests and nothing else is running on the Mac"), the orchestrator posted the five-minute Discord note at 20:02Z and
+started `session-2026-11-21T2008` at 20:08:35Z from lab `820c2cf` (code `3ec6b6c`). It refused before anything
+started: exit 3, no VM, no browser, no site page, no load counted. The runner compares every browser's display with a
+recorded setup; the Mac had only its built-in screen (1 screen, 2940x1912 at scale 2), and the only recorded setup is
+"docked" (its words: "REFUSED: no display setup is recorded for the Mac's present screens"). The owner then said they
+were traveling (part 3) and withdrew the go (item 7b there). No copy has been stored yet (2026-11-23).
+
+**2.3 The demonstration session (2026-11-22).** The owner, 06:09:19Z:
+
+> can you actually call up all the vm tests one more time? i just want to see it go through and try to visually
+> inspect things on the test. this has to be separate process than what we are doing with babysit pr cycle right now
+
+`session-2026-11-22T0613`, 06:13 to 06:21Z, from a frozen copy of lab `3951ebd`, with the display comparison off (the
+built-in screen; no setup recorded). Navi Mac Safari's five loads, one per site: all accepted and signed in, Navi
+v12.19; Gemini and Claude passed all four checks; ChatGPT and Grok failed only the uncalibrated jump (not judged);
+Perplexity failed only the known bookmark. At 06:19:31Z the owner wrote "great, sorry, but you can stop the vm testing
+now."; one Ctrl-C at 06:20:11Z stopped it: the step in flight finished, the browser quit, the VM shut down in 11 s,
+the upkeep was skipped, nothing was left running, and no site objected. Loads that day: 1 per site. This record reads
+the owner's request as the go for that one session; the travel rules of part 3 otherwise stand, and no other session
+ran in this period.
+
+**2.4 The first automatic run's two switches** (for the new order of part 3; lab branch `pipeline/first-automatic-run`,
+`8b413a2`, 21:55Z on 2026-11-21; test driver only).
+- `session.js --lift-reserve perplexity-bookmark`, used only on the owner's go: for that one session the Perplexity
+  bookmark rows are routed unreserved and the baseline's "known" is not counted for them, so the session's end makes
+  them one code-fix job; the start line, `session.json`, Discord and `summary.md` name the lift; the uncalibrated jump
+  check stays out. Without the option nothing changes.
+- The session's end pushes copy commits that a network failure left pending.
+- Verified: the changed tests (118, 0 failing; the new ones red on `2cd2660`); simulated sessions with a planted
+  Perplexity bookmark failure: with the lift, one code-fix job and a dry-run dispatch stopping at "needs your go";
+  without it, known and no job; cells and checks identical to `2cd2660`. Not exercised: a failing jump inside a
+  session, and the catch-up against a real copies repository. The branch is not in the lab's main yet (2026-11-23).
+
+**3. The owner traveling, and the owner's decisions of 2026-11-21, 20:40Z.** The owner, 20:16:26Z, after the refusal
+of part 2.2:
+
+> yes i am traveling right now, sorry that i didnt tell you. i thought it might not matter while you are just working
+> on building. so yes we dont have external monitors right now, only the built in display, but we will connect the
+> external monitor later on. also, because i am traveling, we sometimes lose the connection to internet and things
+> might pause, just be aware of that
+
+Then at 20:40:59Z, pasted as one block (the owner's words, dated 2026-11-21; quoted in full; two paths in item 4 have
+their folder written in brackets, by this record's rule on paths):
+
+> Read your reports in the lab repo. Dated 2026-11-21. I'm traveling: built-in screen only, unsteady internet.
+>
+> 1. Merges in the lab:
+>    a. Yes: merge pipeline/install-tool and pipeline/broker-merge-step into pipeline/phase-1-full-session now. Don't
+>    wait for the copy session.
+>    b. Then open the PR of that branch into the lab's main. Codex reviews it once. Before the merge, fix only findings
+>    that could cause a wrong merge, an uncounted site load, a leak of account details, or a broken session. Log the
+>    rest in the report for Phase 5.
+>    c. Tell me when it's ready and I'll say merge.
+>
+> 2. The public docs branch ci/live-verification-layer: open its PR to main now.
+>
+> 3. PR #98, the CI retry: its .github/ changes are approved. Claude in chat read the full diff of the three files.
+>    a. Merge it when every check on its head is green and Codex's review of that head is a pass. Pin the merge to that
+>    head, as you did with #97.
+>    b. After the merge, prove ci-rerun.yml once on a throwaway branch of this repo: a planted test that fails on run
+>    attempt 1 and passes on attempt 2. I expect one re-run, a green run, and one comment in the "CI flake log" issue.
+>    Then delete the branch.
+>    c. If that proof fails, tell me before changing anything under .github/ again.
+>
+> 4. The install script, part 4: it closes [the Mac's shared folder]/navi-lab/jobs/out and [the Mac's shared
+> folder]/navi-lab/app. machine/mac/jobrunner.sh runs as the Mac's navi user and writes into jobs/out. One line: does
+> anything in today's pipeline still use that job runner or that app folder? If yes, leave those two out of part 4.
+>
+> 5. Claude in chat read the install script at a2a6a89 (git hash cfacaf12...). If the script changes before I run it,
+> say so in the report, with the new commit.
+>
+> 6. A change to my plan's order: the first fully automatic run comes before Phase 5.
+>    a. It runs after tests 6.1 and 6.2 pass, I've switched the real client on, and I'm home (item 7), on today's short
+>    chats and four checks.
+>    b. For that run the Perplexity bookmark reserve is lifted, so the session's end makes it a code-fix job. Until then
+>    it stays reserved and unfixed. The uncalibrated jump check stays out.
+>    c. Auto-merge stays off. The run ends with the Discord message and my own merge.
+>    d. Phase 5 follows it, then a second automatic run on the long chats and the full check list.
+>    e. Update STATUS.md and my steps list to this order.
+>
+> 7. While I travel:
+>    a. No real-site session and no fix loop on a real job until I'm home with the monitors and steady internet. I'll
+>    tell you.
+>    b. My earlier go for the copy session is withdrawn. I'll give a new go then. Nothing starts because a monitor gets
+>    connected.
+>    c. Don't record a built-in-screen setup.
+>    d. Nothing opens a VM window or sends clicks or keys while I'm on the built-in screen, as you said.
+>    e. Build everything that needs neither monitors nor a session.
+>
+> 8. Tests 6.1 and 6.2: tell me for each whether it opens a VM window or needs a steady connection for more than a few
+> minutes. Run 6.1 after my install, test 9 first. Hold 6.2 for home if it needs either.
+>
+> 9. A built-in-display fallback.
+>    a. Now, from the code only, no VM: tell me what a real session needs from my screen, step by step. Which steps
+>    move the pointer, which send keys, which need the VM window in front or in focus, and which run fine in the
+>    background.
+>    b. The rest is for later, after the first automatic run. Don't build it now.
+>    c. When only the built-in display is connected and a "built-in" setup is recorded, a session may run there.
+>    Accuracy comes first: it may take the pointer, the focus and the front of the screen if it needs them. If it can
+>    run in the background, better.
+>    d. Before it starts, it asks me once: the external monitors aren't detected, the session will run on the built-in
+>    display and may take the pointer, type, and come to the front. It runs only on my yes.
+>    e. When nobody is there to answer, as in a fix loop's live check, it sends the "needs your go" Discord message and
+>    waits. It never takes the screen unannounced.
+>    f. Its results carry the setup's name and are compared with that setup's own readings. The Discord summary says it
+>    ran on the built-in display and is marked "re-run when docked" until a docked session clears it.
+>    g. I record the built-in setup when I say. Docked stays the default.
+>    h. Put b to g in STATUS.md under "later". Tell me in one line if anything built today would have to be rebuilt
+>    for it.
+
+What came of each item (the lab's reports of that day, its commits and GitHub):
+- **1. The lab merges and the lab PR.** `pipeline/install-tool` (`cb3236f`) and `pipeline/broker-merge-step` (`2cd2660`)
+  merged into `pipeline/phase-1-full-session` at about 20:50 to 20:54Z, with one conflict, a comment line in
+  `pipeline/nudge/nudge.js`, both sides kept; the touched tests on the merged tree: 272, 0 failing, 1 skipped (the
+  opt-in test against the real CI). Lab PR #1 opened at 20:54:33Z (65 commits then). Item 1b's "Codex reviews it once"
+  was replaced by the owner at 21:05Z (part 6).
+- **2. PR #100.** Opened after main (PRs #97 and #98) was merged into the branch; DECISIONS.md had one conflict (both
+  sides appended at the end), resolved by keeping DEC-065's sections, then DEC-066. The owner, 20:49:54Z: "lets merge
+  pr 100 when the ci turns green. do we need to go through babysit pr cycle for pr 100 too?" Merged at the owner's OK at
+  20:50:22Z (`39127e6`): its checks green (for a docs-only PR the CI runs `changes` and `ci-ok` only, by design) and
+  Codex's review of its head without findings, so no babysit cycle was needed.
+- **3. PR #98 and the proof:** part 4.
+- **4. The job runner and the app folder:** nothing in the pipeline of that day uses them; only Experiment 1's frozen
+  runner (`exp1/run-stage.js`) and the Navi Test user's LaunchAgent did, and the output folder was last written on
+  2026-11-18. So part 4 of the install script keeps them.
+- **5. The install script** is unchanged: its git blob hash is `cfacaf123564` at `a2a6a89`, `2cd2660`, `11cd123`,
+  `65097a3` and the lab's merge `29a05e8` (read 2026-11-23).
+- **6. The order.** The lab's `docs/STATUS.md` and the owner's steps list follow it: (1) tests 6.1 and 6.2 pass, the
+  owner switches the real client on and is home; (2) the first fully automatic run, on the short chats and the four
+  checks, with the Perplexity bookmark reserve lifted for that run only, the jump check out, auto-merge off, ending with
+  the Discord message and the owner's merge; (3) Phase 5; (4) a second automatic run on the long chats and the full
+  check list. Until (2) the Perplexity bookmark stays reserved and unfixed. This moves before Phase 5 the run the owner
+  described at 18:34Z ("hold on to that, don't fix that perplexed bookmark issue right now, we're holding it off, until
+  we do a real final run of, as if we know nothing about, and the systems build"), and lifts the reserve for it. The
+  one-session switch for the lift is part 2.4.
+- **7. While traveling.** No real-site session (part 2.3 is the one exception, at the owner's own request), no fix loop
+  on a real job, no built-in setup recorded, no VM window, click or key. Built meanwhile, needing neither monitors nor a
+  session: a Discord outbox, so notes survive a network outage, with the copy push's catch-up (`54b142a`); and the
+  install tool's leftovers from the owner's message of 16:52Z (`e954ca5`): Safari through its Userscripts folder over
+  SSH, the full address read back before every Return, and the setting change's dry-run path, with no VM run (item 7d).
+- **8. Tests 6.1 and 6.2.** 6.1 (tests 1 to 16, on this Mac) opens no VM window; tests 9 to 12 run short `claude -p`
+  sessions as `navifix` and test 13 runs Navi's `npm test` in headless browsers inside the sandbox, each needing the
+  internet for a few minutes (a drop re-runs that test only); so it can run while traveling, after the owner's install,
+  test 9 first and reported at once. 6.2 (tests 17 to 24, on the live GitHub) opens no VM window, but its pushes, PRs,
+  Codex reviews (10 to 20 minutes of waiting each) and merge proof need a steady connection for much longer, with the
+  owner present: held for home. Neither has run.
+- **9a. What a real session needs from the screen** (the orchestrator's reading of the code, no VM): **no step moves
+  the Mac's pointer or sends keys to the Mac.** Reading the screens and the display setup is geometry, in the
+  background. `utmctl start` opens the VM's window; whether UTM comes to the front at that moment is not measured on its
+  own. Placing the window sets its position (and, in window mode, its size) through accessibility; on 2026-11-19 the
+  Mac's frontmost app was measured to change from Terminal to UTM across the start and the placement. Everything inside
+  the VM (boot checks, pre-checks, opening and quitting browsers, the checker, tab counts, Safari's file) runs over SSH
+  in the background, and the checker's clicks are inside the page. Screenshots, when a check needs one, are of the VM
+  window by its id. Shutting down is in the guest over SSH, then the window's close button through accessibility. Not
+  measured: whether a guest renders at full speed while the owner's apps cover its window on the built-in screen; the
+  pre-check's frame-rate minimum (20 per second) would catch a slowed guest.
+- **9b to 9h.** Written under "later" in the lab's `docs/STATUS.md`; not built. The orchestrator's one line: nothing
+  built so far has to be rebuilt for it (the named display setups, the refusal at the start and the "needs your go"
+  message exist; the one-time question, the setup's name on results and the "re-run when docked" mark are additions).
+
+**4. The CI retry and the other public PRs.**
+- **PR #97** (the Claude review skipped on `loop-fix/` branches, the owner's choice 11 with the owner's prefix of
+  18:17Z): merged at the owner's word at 18:35:50Z (`b0a6df9`); recorded in the section before, part 6.
+- **PR #98, the CI retry** (DEC-066 has the owner's request of 18:49:25Z, the decision and the design). Its `.github/`
+  changes approved in item 3 above. Merged at 20:42:12Z (`356ca91`), pinned to its head `d786558`: all 20 checks green
+  on that head and Codex's review of that head without findings (the lab's report).
+- **The proof of `ci-rerun.yml`** (item 3b): draft PR #99 from the throwaway branch `proof/ci-rerun-2026-11-21`, with a
+  planted test that fails only on run attempt 1, in the chromium leg on ubuntu. Run 44947778793: attempt 1 failed on
+  the planted test (in the job, the harness's retry failed it too: GENUINE); `ci-rerun.yml` (run 44949308504, started
+  21:01:10Z) re-ran the failed jobs once; attempt 2 passed, and the run is green. One comment, at 21:09:35Z, in the new
+  issue #101 "CI flake log" (label `ci-flake`), naming the run, the job, the attempts and the planted test; the two
+  later `ci-rerun.yml` runs (attempt 2's completion and main's own run) posted nothing. So, as the owner expected: one
+  re-run, a green run, one comment. PR #99 was closed unmerged at 21:55:45Z and its branch deleted (GitHub answers 404
+  for it on 2026-11-23); nothing under `.github/` changed. This is the first run of `ci-rerun.yml` on GitHub, which
+  DEC-066's "Risks" lists as not yet run; DEC-066 is left as written, and this is its result. Issue #101 still has that
+  one comment (2026-11-23).
+- **PR #100:** item 2 in part 3.
+
+**5. The broker and the install tool: where the owner's answers stand.**
+- **The broker's 12 choices** (dated 2026-11-20 by the owner, quoted in "Before the first session of Phase 2") and
+  **the merge step, the tokens and the install script** (dated 2026-11-20, quoted in "The broker approved for use after
+  its tests"): built in lab `a2a6a89` (19:21Z on 2026-11-21; unit tests only, 21 files, all passing; nothing installed,
+  nothing sent to GitHub or Discord), merged into the pipeline branch at the owner's yes (part 3, item 1a) and into the
+  lab's main with lab PR #1. The merge step and the real client are both off by settings. The merge needs no new token
+  permission (Contents write for the merge call; Metadata, Pull requests and Commit statuses read for the new reads;
+  GitHub's pages as read on 2026-11-21; whether the token can read check runs is unmeasured). The broker records the
+  GitHub token's expiry from GitHub's own answer and the Claude token's creation date plus one year, and the morning
+  nudge warns 14 days before either. After 6.1 passes, one line in the broker's `settings.json` and a restart of its
+  LaunchAgent switch the real client on. The gap the section before names first under "What does not work" ("the
+  installed broker's outgoing scan has nothing to look for") was one of Codex's first three findings on lab PR #1, fixed
+  in `99d228d`.
+- **A new owner step,** from the first review cycle: the real broker refuses to leave the dry run unless five Keychain
+  items exist. The fifth is new and holds the private ids (the test chats', the org's and the account's), so the
+  outgoing scan can refuse them. Open with the owner: typed by the owner, or filled by a helper from the lab's private
+  records without anyone typing them (the orchestrator's pick: the helper).
+- **Never run yet** (2026-11-23): the install script (its dry run or with sudo), the two tokens, tests 6.1 and 6.2, the
+  switch to the real client, the merge switch.
+- **The install tool:** accepted by the owner at 16:52Z on 2026-11-21 ("Read your report. The install tool is accepted.
+  Dated 2026-11-21."; quoted in full in "The first session of Phase 2"). **Its first use**, that morning: the loader
+  steps in the seven Tampermonkey browsers (05:08 to 06:40Z), no browser failing twice; Navi Mac Firefox took three runs
+  (the tool's own check failed once on a dashboard that had not refreshed, then passed, then passed once more as the
+  proof of the fixed check). Then the pre-check of all eight browsers passed (06:48 to 07:09Z; Navi Mac Firefox on its
+  second try, after a frame-rate failure). **Its one safety breach,** in a
+  Windows Firefox dry run at about 06:21Z: Firefox put the first letters of the typed address into the page before the
+  address bar had the focus, so the bar held the rest of the address without them. The tool's check looked only for
+  part of the extension's id anywhere on the screen, found it and pressed Return, and Firefox sent the bar's leftover
+  text to Google as a search from the VM. What left the VM: no secret and no AI site's address, only the Tampermonkey
+  extension's own id inside the query. The guard was fixed: the check now needs the scheme plus the id at the start of
+  a word, with an 800 ms pause before typing and one slower retype before giving up with Escape. No later run had an
+  address bar that read back wrong, and that Firefox restores no session, so the search tab does not come back.
+
+**6. Lab PR #1: the owner's words, the push-scan decisions and the stop rule.** The owner, after Codex's first
+findings (21:05:48Z on 2026-11-21):
+
+> codex reviewed and raised bug issues. i need you to go through /babysit-pr-cycle in that branch to get all the of
+> bugs out. maybe call a parallel agent for that?
+
+The orchestrator read this as replacing item 1b's "Codex reviews it once" and its four-class filter for this PR, and
+started the cycle in a background agent at about 21:07Z. The owner, 22:49:37Z: "since its p1, i think we should
+probably keep going with the babysit pr cycle just couple rounds more just to make sure there are no more bugs."
+Then at 02:01:55Z on 2026-11-22, pasted as one block (the owner's words, dated 2026-11-21; quoted in full):
+
+> Read the babysit status. Dated 2026-11-21.
+>
+> 1. Close the scan family by design. Yes to both:
+>    a. A loop push may contain only text files: valid UTF-8 with no NUL byte. Anything else is refused, and the
+>    "stuck, needs you" message names the file.
+>    b. Every pushed JSON copy must be byte-for-byte the pipeline's own canonical form. The scan runs on exactly the
+>    bytes that get published.
+>    c. Prove legitimate work still passes: the simulator's code-fix run, CI-fix run and copies go through unchanged.
+>    d. Update the allow list in the proposal (section 3) to say both.
+>
+> 2. Write the scan's limit into the proposal: it catches accidents. It cannot catch a value disguised on purpose
+> (encoded, split, reversed). What stops that is that the loop's user doesn't hold the values, which the tests of 6.1
+> prove. After item 1 lands, a finding whose only path is deliberate disguise is logged as this known limit and not
+> fixed, unless one more refusal rule closes it.
+>
+> 3. The stop rule from here:
+>    a. Fix every other P1, and every P2 that could cause a wrong merge, an uncounted site load, a leak of account
+>    details or a broken session.
+>    b. Log the other P2s for Phase 5.
+>    c. End at two clean answers in a row, or three rounds after item 1 lands, whichever comes first.
+>    d. Then report what was fixed, what was logged, and the head commit. I say merge.
+>
+> 4. After the merge: give me the commit and the dry-run command. Claude in chat confirmed the install script is still
+> the one it read (cfacaf12...) at 11cd123. If that changes, say so.
+
+**What was built for items 1 and 2** (lab `b69cc2e`, 02:27:45Z on 2026-11-22): a loop push may hold only valid UTF-8
+text with no NUL byte, and the "stuck, needs you" post names a refused file; every pushed JSON copy must equal the
+pipeline's own serialization byte for byte, and the scan reads the bytes that get published; the broker proposal's
+3.2, 3.5 and 6.3 (the known limit: deliberate disguise) say so. Item 1c's proof (the simulator, headless, its own
+port): the code-fix chain over 40 cells (the admin look 8 of 8, the fix check 56 of 56, red then green on 16 checks,
+"would auto-merge", ready to merge, closed with nothing merged), the dry-run dispatches of a code-fix job and a CI-fix
+job, and the real builder's copies through the broker as a session's copies push and as the CI fix loop's
+regeneration: all passing. Not run: a full Phase 3 session that stores copies. The recheck (part 7) later found a case
+that proof had not covered: with an identity entry of the form that matched in the first session, both copy pushes
+refused the builder's own copies (22 of 31 files of a simulated session's copies at `3f2eff8`; none after the fix of
+the third cycle). Both results are kept.
+
+The owner's later words on the cycles, each quoted in full:
+- 05:38:23Z: "sorry mac ran out of battery and you were off for awhile. did the workflow stop" (the Mac had slept;
+  nothing was running, and everything was committed and pushed); then 05:40:03Z: "i think it raised some of the p2
+  issues too, can you look into them? also, did codex leave any messages in lab pr? fix them with babysit pr cycle
+  there if its necessary too"
+- 06:29:43Z, on Codex's "Something went wrong" notice: "codex had an issue, when things like this happen, you just
+  have to call the codex review again"
+- 07:42:24Z: "is it good to merge? is all of the p1s all fixed? can you go through them one more time and just check if
+  we touched everything. dont change or commit anything though, as it will trigger another review"; and 07:44:09Z: "i
+  didnt mean just p1s, check all issues that was raised by codex. i just meant to say prioritize p1 because they are
+  more serious issues. im only asking to recheck because there were sometimes that the bugs were raised, but we were
+  already doing another fix or we already called up another codex review so things mightve gotten forgotten"
+- 08:11:30Z: "just dont merge and fix those issues now, including the ones that would hurt the first automatic run, and
+  then run codex review, until it finds no error more"
+- 2026-11-23, 18:28:55Z: "merge it. now that that is merged, whats next step? we should keep pushing."
+
+**7. Lab PR #1: the review cycles, in counts and kinds.** Lab PR #1 (`pipeline/phase-1-full-session` into the lab's
+main: Phases 1 to 4, the broker, the loops and the install tool) was opened at 20:54:33Z on 2026-11-21 and merged at
+18:29:08Z on 2026-11-23 at the owner's "merge it": merge commit `29a05e8` of the head `9c346b1`, 111 commits.
+- **Codex's findings, over the PR's life** (its inline comments, read 2026-11-23): **42, of which 25 P1 and 17 P2**,
+  raised from 20:58Z on 2026-11-21 to 09:19Z on 2026-11-22. By kind: 22 in the privacy scans of what a push publishes
+  (binary and UTF-16 files, text replacing a binary file, duplicate JSON keys and every JSON root type, escaped,
+  entity-encoded and percent-encoded text, names wrapped across lines, commits and commit messages, the lab-text
+  index, the pieces of a held secret, the real broker's scan inputs, the copies' own format words); 5 in the fix loop's
+  reading of the CI's red and green and its triggers; 3 in the broker's Codex read and merge gate; 3 in the broker's
+  mirrors; 3 in long-chat cell names, copy folders and fix-check plans; 2 in reports whose post must not be lost; 2 in
+  binding a loader report, and a report waiting on its privacy scan, to the arm that asked for it; 1 in the inbox's
+  file modes; 1 in the session's choice of cells.
+- **Outcome: 41 fixed, each with a test that fails before its fix, and 1 logged for Phase 5** (the session's `--cells`
+  is not checked against the chat list; a long-chat cell is refused at argument time, before any receiver, VM or load;
+  the reason is in its thread). Codex answered "Didn't find any major issues" 13 times and "Something went wrong" 5
+  times, each error asked again at once.
+- **The first cycle** (a background agent with `/babysit-pr-cycle`, 21:07Z on 2026-11-21 to 03:15Z on 2026-11-22):
+  six of Codex's clean answers were each followed by more findings on the next review; it ended at the owner's cap,
+  three rounds after item 1 landed, with two P2s open (one of the wrong-merge class, one of the leak class; the
+  orchestrator missed the second in the agent's report and found it on checking the code), and a third P2 was raised
+  at 03:30Z, after it.
+- **The second cycle** (from 05:40Z, at the owner's word): those three fixed first, then two P1s, then a clean answer
+  (06:42:30Z) and the three-round cap; the lab's report called the PR ready. It had left out two P1s, one raised during
+  the cycle (06:16Z) and one just after the ready report (06:47Z); both were fixed in `3f2eff8`, which Codex answered
+  clean twice (07:31Z and 07:35Z).
+- **The read-only recheck of every finding** (the owner, 07:42Z and 07:44Z; against `3f2eff8`, nothing committed or
+  posted; probes on scratch copies): the 41 findings raised by then (24 P1, 17 P2), one by one: 37 fixed (7 of them with
+  a note: a variant still passing on 3, a similar line missed, a fix narrower than Codex's words, a written-down limit,
+  a file mode checked only as a mode), 3 partly fixed, 0 not fixed, 1 logged; 5 gaps that Codex never raised; three
+  minor items; and only 1 of the 41 threads had a reply.
+- **The third cycle** (the owner, 08:11Z): 9 fixes, one commit each, each with a test that fails on `3f2eff8`: the 3
+  partly fixed, the 5 gaps, and the receiver's record log line (it answered 400 four times a session on a batch it had
+  stored). Logged, with a reply in each thread: one finding's entity-spelling variants as the scan's known limit
+  (deliberate disguise), and three minor items for Phase 5. A simulated session of the fixed code against the same run
+  at `3f2eff8` (headless, its own ports, temporary folders, invented chats, no Discord, an invented identity entry,
+  copies stored in a scratch repository): identical per load and check (61 of 61 result files: 8 of 8 pre-checks, 40
+  of 40, the five copies replaced, the CI agreeing 4 of 4 on each); the receiver's rejected-record log lines 4 to 0.
+  Then Codex: one P1 on the docs commit `3162162` (09:19:58Z: a name assembled across two commits, with the file
+  deleted by a third, reached the remote), fixed in `65097a3`; an error notice, asked again at once; then **"Didn't
+  find any major issues" twice in a row on `65097a3`** (09:33:56Z and 09:37:47Z), which ended the cycle. The docs-only
+  head `9c346b1` got the same answer twice (09:44:14Z and 09:49:46Z), after one more error notice.
+- **The install script** stayed the file Claude in chat read (`cfacaf12...`) throughout; the broker code it installs
+  changed in the cycles, and the install copies the reviewed commit's files.
+
+**8. The owner's standing rules from these days** (each stands until the owner changes it):
+- **VM-window steps are the orchestrator's, through the install tool:** "a step is yours if it is only clicks or typing
+  in a VM window, on a page that isn't one of the five AI sites, with no password, passkey or other secret", and
+  nothing in Phases 2 to 6 may need a script install or a browser setting from the owner (items 10 and 9g, dated
+  2026-11-20, quoted in "The broker approved for use after its tests").
+- **Reports go to the lab repo:** each report to the owner is also written to `docs/reports/<date>-<topic>.md`, with
+  `docs/STATUS.md` updated and the branches pushed, and ends with the commit and the report's path (item 7 of 18:17Z on
+  2026-11-21, quoted in "The first session of Phase 2").
+- **While the owner travels:** item 7 of part 3, until the owner says so.
+
+**9. What waits** (as of 18:30Z on 2026-11-23):
+1. **The orchestrator:** the first automatic run's switches (part 2.4) into the lab's main; item 4 of the owner's
+   message dated 2026-11-21: the merged commit is `29a05e8`, the install script there is still `cfacaf12...`, and the
+   dry run is `bash pipeline/broker/install/install-navifix.sh --dry-run` from the lab folder (`--expect <commit>`
+   refuses any other commit).
+2. **The owner, possible while traveling:** that dry run, then the script with sudo; the loop's Claude token and the
+   broker's GitHub token (one year); the Keychain items, with the open question on the fifth (part 5); "installed",
+   after which the orchestrator runs 6.1, test 9 first, reported at once.
+3. **The owner, at home with the monitors and a steady connection:** 6.2, with the owner present; the switch to the
+   real client; a new go for a real session (item 7b), the next by the new order being the first fully automatic run.
+4. **Then** Phase 5 (the final check list, the long chats, a hand-checked sample), and the second automatic run.
+5. **Later:** the built-in-display fallback (part 3, item 9).
+
+#### 2026-11-23 evening to 11-24 (a dated continuation): the owner's decisions, lab PRs #2 to #8 merged in order, the broker installed, the tokens verified, test 9 tried
+**State and context.** This continues the section above from part 9 (about 18:30Z on 2026-11-23) to about 07:15Z on
+2026-11-24. Context of every claim, unless a part says otherwise:
+- the owner's words: quoted word for word from the orchestrator's session record, extracted again on 2026-11-24 (the
+  owner's messages from 18:28:55Z on 2026-11-23 on). Times are when a message arrived, in UTC; a date the owner wrote
+  in a message is kept. Terminal output the owner pasted is not quoted: it names the Mac's account;
+- the private lab repo: its reports of 2026-11-23 and 2026-11-24 and its `docs/STATUS.md` on the branch `docs/status`,
+  read on 2026-11-24; for the tokens' timing and for test 9, the orchestrator's chat reports to the owner of 06:30Z and
+  06:35Z on 2026-11-24, kept with its session outside both repos;
+- GitHub: lab PRs #1 to #8, their heads, merge commits and Codex's comments, read through GitHub's API on 2026-11-24;
+- the evidence is unit tests, the test driver, mocks, stand-ins and the simulator on this Mac, and the installed broker
+  in dry run, **never a real browser**: no real-site session ran in this period, and the broker sent nothing to GitHub
+  or Discord.
+
+**10. The owner's decisions.**
+
+**10.1 The Keychain helper, the install, iCloud, the auto-merge rule and the demo session.** The owner, 18:43:39Z on
+2026-11-23, pasted as one block (dated 2026-11-23; quoted in full):
+
+> Read the reports on docs/status. Dated 2026-11-23.
+>
+> 1. The Keychain item navi-broker-private-ids: the helper, yes.
+>    a. It runs in my account, reads only the lab's private local records, and writes the item.
+>    b. It prints counts only (how many chat, org and account ids), never an id.
+>    c. Run it after my install and tell me the counts.
+>
+> 2. I'm running the install at 29a05e8 now. Does lab PR #2 change any file the install copies (pipeline/loop,
+> pipeline/broker, package.json, package-lock.json)? If yes, tell me to re-run the script after I merge it.
+>
+> 3. The " 2" files in the lab folder. Read-only, change and delete nothing. Tell me:
+>    a. whether ~/Desktop is synced by iCloud Drive, and whether "Optimize Mac Storage" is on;
+>    b. whether any " 2" files exist inside the .git folders of the lab repo, the public repo and the loadout repo;
+>    c. whether the lab's private local folder and the kept refused captures sit inside a synced folder.
+>
+> 4. Log this for before auto-merge is ever switched on. Don't build it now: a loop's "ready to merge" should need
+> every Codex comment on the PR fixed or answered, not only a clean answer on the head. Twice in lab PR #1 a finding
+> raised mid-round was skipped.
+>
+> 5. The demo session of 2026-11-22 ran on the built-in screen with the display comparison off. Label it so its
+> results never enter a baseline or a comparison. Record that Safari's jump result on ChatGPT and Grok differed from
+> the docked sessions, as an observation for the built-in fallback.
+
+What came of each (the lab's reports of that evening):
+- **1.** The helper was built as lab PR #3 (part 11) and run after the install (part 12).
+- **2.** Lab PR #2 changed `pipeline/session.js`, `pipeline/upkeep/run.js` and three tests, none of them under what the
+  install copies, so no re-run was needed for it.
+- **3.** Read only, nothing changed: the Desktop is synced by iCloud Drive (Desktop and Documents on) and "Optimize Mac
+  Storage" is on, with no file under the lab offloaded at the time; no " 2" file inside the `.git` folders of the three
+  repos; the lab's private local folder sits inside the synced Desktop, which iCloud reports uploaded; the folder for
+  refused captures did not exist yet, none having been refused since it was built. The four " 2" files in the lab
+  folder were untracked and byte-identical to tracked files, the shape iCloud gives a sync conflict.
+- **4.** Logged in the lab's STATUS and in the broker proposal's merge step (its 3.7); not built.
+- **5.** Built as lab PR #4 (part 11): the session listed as excluded (label "demo"), and a rule that keeps out in the
+  same way any live session whose record says a browser's display was not checked. The observation, in the lab's
+  runbook (10.15): Navi Mac Safari's jump failed on Grok (passed in all three docked sessions) and on ChatGPT (passed in
+  two of three), with the same page viewport (1118x676) and the checker's timers running later than docked (up to
+  3.2 s, against 1.3 to 1.8 s); one run, and the jump check is uncalibrated, so none of it is a Navi failure.
+
+The owner, 20:32:58Z, pasted as one block (dated 2026-11-23; quoted in full):
+
+> Read your answers on docs/status. Dated 2026-11-23. Items 1, 2, 4 and 5: agreed as you did them.
+>
+> iCloud (your item 3): nothing moves.
+>
+> 1. My decision: side-projects stays in Desktop, synced to my iCloud. That includes the lab's private folder and any
+> refused captures kept later. Record it as accepted by me.
+>
+> 2. Two checks at the start of every session, before any VM starts:
+>    a. If a file the session needs is not on disk (offloaded by iCloud), stop and name it.
+>    b. If the lab folder or its .git holds a sync duplicate (the same name plus a space and a number): remove it when
+>    it is untracked and byte-identical to the tracked file, and say so in the report. If it differs, stop and list it.
+>
+> 3. Delete the four " 2" files now, after confirming once more that each is untracked and byte-identical to its
+> tracked file.
+>
+> 4. Tell me in one line whether any password, token or cookie was ever inside a synced folder.
+>
+> 5. For later, don't build anything now: I plan to move all of this to a dedicated Mac with its own account. Keep a
+> list in STATUS.md, "Tied to this Mac": every path with my user name, the user id, the Keychain items, the VMs, the
+> display setups, the LaunchAgents, the navifix user and the browser installs. Add to it whenever you build something
+> machine-specific.
+
+What came of it:
+- **1.** Recorded in the lab's STATUS under "Decided", as accepted by the owner.
+- **2.** Built as lab PR #5 (part 11), with two choices of the orchestrator's said in that PR: an identical duplicate
+  in the private local folder (never tracked) is removed like one beside a tracked file, and an empty duplicate folder
+  beside its original is removed.
+- **3.** The four files were deleted at about 20:20Z after that check (each untracked, its original tracked, the two
+  sha256 equal). Four empty duplicate folders were found and left for the new start check.
+- **4.** The orchestrator's line, as far as the Mac showed on 2026-11-23: no account password, account token or cookie
+  in a synced folder, searched by shape in the private local folder, the owner's untracked files and every commit of
+  the lab repo (159) and the public repo (821); the test account's cookies are inside the VMs' disks, which are not
+  synced. The one secret in a synced folder: the receiver's two control keys, random keys that let only a process on
+  this Mac control the receiver. Not checkable: files deleted earlier that were never committed.
+- **5.** "Tied to this Mac" is in the lab's STATUS, in ten groups: the owner's account and the code that names it, the
+  paths, the Mac users, the Keychain items (five), the install's footprint, the LaunchAgents (three), the VMs, the
+  display setups, the browser installs, and two other entries. Nothing is built for the move.
+
+**10.2 The lab PRs merged in order, every Codex finding fixed.** The owner, delivered during one of the orchestrator's
+turns between 20:32Z and 22:05Z (its own arrival time is not in the record; quoted in full):
+
+> are you going through the babysit pr cycle with pr right now? shouldnt we merge the pr in order instead of working
+> on pr individually, which would be a nightmare later after we merge previous pr and later ones are now behind the
+> main? sort that out please, but also make sure that you go through codex reviews too so that we dont introduce bug
+> into the repo and it gets worse as it goes because the later pr's work with that bug
+
+Then 22:19:48Z:
+
+> merge all the pr in order, but like i said, make sure that they dont run into merge issues, and make sure that
+> after everything has merged to pr 5, make sure that everything will be working smoothly, without any issues or code
+> issues or doc issues. i dont want pr 4 to have built on top of old previous pr and something changed in pr 3 and pr
+> 4 still is behind and built on top of buggy code. make sure there are no issues after all the merges and that repo
+> is clean
+
+and 22:38:16Z: "are you still working on gettting the private lab pr all in order? i keep getting the emails for codex
+review, so make sure you fix all those issues too". The orchestrator read these as the owner's OK to merge the lab PRs
+in order, each only after it is up to date with main, its tests pass and Codex answers clean twice in a row on its
+final head, every merge pinned to that head; and, unlike lab PR #1's stop rule (part 6, item 3), with every Codex
+finding fixed and none logged. Part 11 has the outcome.
+
+**10.3 The owner home again, and everything automatic that does not need the owner.** The owner, 04:43:51Z on
+2026-11-24: "I told you i am no longer traveling. i am back at home and with stable connection. we have the monitor
+and steady internet right now. shouldve updated the plan according to that". The orchestrator lifted the travel rules
+(part 3, item 7; part 8's third rule) at about 04:45Z; the Mac's screens, read then, equal the recorded setup
+"docked". A real-site session still needs the owner's go in words. On the install being the owner's step, 04:48:34Z:
+
+> why does the install step keep having to be me? you cant keep having to come to me if the step can be automatic. if
+> it definitely needs me then i will but unless it needs human supervision or presence, everything should be
+> automatic. if you come up with new script or new test script or new feature code, you cant keep asking me to install
+> it. i thought couple steps ago we made that process automatic, or it mightve been for something else, but does that
+> install step definitely need me? if not, then automate it
+
+The orchestrator's answer (04:49Z): the broker lives in the owner's account and needs no root, so its updates become
+automatic; for the loop's root-owned files, either (a) one last sudo run installs a root-owned updater and a one-line
+sudo rule that lets the owner's account run only that updater, which installs only the loop's files and dependencies,
+only from a commit in main, checks every hash and touches no user, group or sudo rule, or (b) loop updates stay the
+owner's sudo step. The owner, 04:53:04Z (quoted in full):
+
+> go with a. i still think even that could be done by you and every loop update or any script update should be
+> automatic after that. you have vm, you have terminal access, you click through vm and browsers and even type, i dont
+> know why it still needs me. all of our process should be automatic as possible, which was the whole point of this
+> loop building. i built this loop because i cant keep all of the features working on all 5 sites on all 3 browsers
+> in all 3 OS every single day. if you keep asking me to do install or click through or run terminal commands that you
+> can too, then its adding more work to me, which is same or worse than having supposedly full automatic check loop
+> that one loop takes in ci and updates our ci tests and the other fixes whatever feature that didnt work on real ai
+> sites testing.
+
+The orchestrator's reply: the owner's password is the one thing it must never hold or type, so the one sudo run stays
+the owner's, and the rest (updates, the Keychain helper, broker restarts, recording the Claude token's date, the steps
+of 6.2, the install tool's steps) becomes its own. The owner, 04:57:29Z (its first part quoted): "yes now that i am
+fine with because its with logins and passwords. i can handle that and also its not everyday that we expereience login
+issues in our vm. or our admin account right now. so anything that terminal commands that requires to put password in,
+i am fine with doing it. but not just running simple commands or clicking through stuff in vm, which you can totally
+all do." Then 05:01:27Z (its first part quoted; the merge of this PR, #102, is done under it): "lets try to speed up
+the process as much as we can. use as many agents as you need. dont worry about token consumpage. also merge every
+other PR after all the bug fixes and when the code is clean." And 07:09:58Z: "like i said dont hold back on calling
+agents to work on things parallely and please do speed up if you can".
+
+**10.4 The root updater's four rules.** The owner, 05:17:49Z, pasted as one block (dated 2026-11-24; quoted in full):
+
+> The updater and its sudo rule, while you build them. Dated 2026-11-24.
+>
+> 1. "A commit that's in main" means GitHub's main, fetched fresh by the updater itself. Never the local lab folder's
+> main, which anything in my account can change.
+> 2. As root it only copies files and checks hashes. It never runs anything from the commit as root. Dependencies
+> install as navifix, as part 6 does today.
+> 3. The sudo rule names one fixed program. The only thing the caller passes is a commit id, and the updater validates
+> it.
+> 4. It can't change users, groups, sudo rules or itself. A change to the updater needs my own sudo run.
+>
+> Also put this in my one sudo run: remove navifix from com.apple.sharepoint.group.1.
+>
+> Before I run anything with sudo, give me the commit and both script hashes. Claude in chat reads the updater and the
+> install script's changes first.
+
+Being built on the lab branch `pipeline/auto-updates` (pushed at `dc455d5`, 06:16Z; no PR yet at about 07:15Z; its
+commits, read 2026-11-24): the root updater with its deploy key and its one sudo rule as part 9 of the install script,
+part 1's line for that File Sharing group, the broker updater in the owner's account, and a session-start check that
+the installed broker and loop equal the lab's main. It goes through three security reviewers with two skeptics per
+finding, then Codex, before the owner's sudo run.
+
+**10.5 The two tokens.** The owner, 06:26:52Z, pasted as one block (dated 2026-11-24; quoted in full):
+
+> Both tokens are stored. Dated 2026-11-24.
+>
+> 1. The Claude token: the printed token had a space in it, which I removed before storing. Verify it now, without
+> ever printing it:
+>    a. It has no whitespace and the expected prefix. Tell me its length only.
+>    b. It really works: get a one-word reply from Claude using only this token, in a way my own login can't answer for
+>    it (as navifix, which has no login of its own, or the nearest equivalent).
+>    c. Tell me the result at once. If it fails, I make a new one.
+>
+> 2. The GitHub token: fine-grained, one year, the two repos only. Contents, Pull requests and Issues are read and
+> write. Actions and Commit statuses are read-only. Checks was not in the list, so it isn't set.
+>    a. Verify with read-only calls that it reaches both repos, and tell me the expiry date GitHub returns.
+>    b. Find out now whether it can read check runs on each repo. Where it can't, read the same results through Actions.
+>
+> 3. Record the Claude token's creation date as 2026-11-23, the earlier of the two possible days, so the warning comes
+> early and not late.
+
+**10.6 The probe kind, approved test-only.** The owner, 06:53:32Z, in answer to the test 9 report (part 13.2), pasted
+as one block (dated 2026-11-24; quoted in full):
+
+> The probe kind: approved, test-only. Dated 2026-11-24.
+>
+> 1. Conditions:
+>    a. Its prompt is one fixed, root-owned file. It takes no text from whoever starts it.
+>    b. A probe job has no repo access, and the broker refuses every publishing request from one: no push, PR,
+>    comment, label or Discord post.
+>    c. It is used only by the 6.1 tests.
+>
+> 2. The starter's process guard: recognise macOS's own per-user services by their program's full path in the
+> system's protected folders, never by name. Anything else running as navifix still refuses the start. At the end of a
+> run, every process the run started is stopped, as now.
+>
+> 3. The updater's deploy key: read-only, the lab repo only, its private half readable by root only. Tell me when it is
+> registered and what it is named.
+>
+> 4. Before the probe is used: give me the branch or PR. Claude in chat reads the probe's prompt and the starter's
+> change. Test 9 runs after my word, not before. The PR may merge when it is clean; it just isn't used until then.
+
+**11. Lab PRs #2 to #8, merged in order.** Each was caught up to main after the one before merged, its tests run, every
+Codex finding fixed, Codex clean twice in a row on its final head, and the merge pinned to that head, by the
+orchestrator's gate under the owner's words of part 10.2 (GitHub's API and the lab's reports, 2026-11-24). Lab PR #1 is
+part 7.
+
+| Lab PR | What | Head | Merge commit | Merged (UTC) | Codex's inline findings, all fixed |
+|---|---|---|---|---|---|
+| #1 | the pipeline into the lab's main | `9c346b1` | `29a05e8` | 2026-11-23 18:29:08 | 42 (part 7) |
+| #2 | the first automatic run's two switches (part 2.4) | `229ed9e` | `076d8bf` | 2026-11-23 22:05:12 | 0 |
+| #3 | the helper that fills the private-ids Keychain item | `7cc0d79` | `67c154c` | 2026-11-23 22:47:42 | 2 P2: an error could name a chat by its label; a Claude chat inside a project |
+| #4 | the demo session kept out of every baseline and comparison | `b029394` | `7761372` | 2026-11-23 23:27:05 | 1 P2: an excluded session's per-check results still classified against the baseline |
+| #5 | the two checks at every session's start | `597e072` | `b220d5f` | 2026-11-24 00:22:15 | 7 P2: which paths count as needed; a worktree's pointers read before they are checked; removals made before the VM-count refusal; partial removals left out of the report; a test's platform guard; a fix check's loop folder; dependencies checked before the test driver loads |
+| #6 | fix round A, the pipeline's code | `d66ea6f` | `aec2258` | 2026-11-24 04:57:16 | 3 P2: the chain wrapper's exit code; a named path inside the results folder; the chain script's Linux load average |
+| #7 | fix round B, the broker and the install | `2a8f986` | `96b8f25` | 2026-11-24 06:36:29 | 2 P2: the comment budget kept for PRs still owed one; no PR change while a report's comments are owed |
+| #8 | fix round C, the docs and STATUS | `07fb17a` | `8d18c5b` | 2026-11-24 07:12:45 | 0 |
+
+- **In counts:** on lab PRs #2 to #8, 15 inline findings, all P2, all fixed, none logged; no P1.
+- **The one interaction between them** (a throwaway merge of #2 to #5 together, removed afterwards): #2's reserve-lift
+  test built a session record without the display list that #4's rule needs. Each PR alone passed; it was fixed in #4
+  once #4 was caught up with main.
+- **Lab PR #1's five logged items are fixed now** (part 7 is left as written; both results kept; the lab's STATUS lists
+  them): the session's `--cells` refusing long-chat cell names, and `fromCi` not reading `reportValid` (both in lab PR
+  #6); a failed GitHub post after a Discord post, the broker replies' file mode, and the entity-spelling variants
+  logged as the scan's known limit (`&#64` with no semicolon, `&commat;`), closed by one more decode rule, the exception
+  the owner's item 2 of part 6 allows (all three in lab PR #7). The scan's limit itself (a value disguised on purpose)
+  stands.
+
+**11.1 The independent verification of main** (the lab's main at `b220d5f`, after #5 merged; reported at about 03:00Z
+on 2026-11-24; the test driver, mocks and stand-ins on this Mac, never real-browser evidence):
+- **The unit suite:** 76 files, 1,104 tests: 1,101 pass, 0 fail, 3 skipped (the opt-in ones); run twice, the same
+  outcomes.
+- **The full chain:** the smoke run 47 of 47 in Chromium, Firefox and WebKit; the mock pages 64 of 64 spec runs in each
+  engine; Experiment 1's reference 16 of 16 in each engine; the receiver 23 of 23; the opt-in real-CI fix loop 1 of 1;
+  every part as its proof expects. Its findings: 1 medium (the layout groups fell back without saying so when the
+  served build's selector inventory was not the committed one) and 4 low, one of them a note now in part 6 of "Before
+  the first session of Phase 2" (dated 2026-11-24).
+- **A code review** of how #2 to #5 work together, each finding challenged by two skeptics: 8 confirmed by both (1
+  medium: the copies' catch-up never pushed while the remote had no `ci-copies` branch yet, so a failed first push
+  stayed pending; 7 low), 2 split.
+- **A docs review** of the lab's 43 docs against the code: 19 confirmed by both skeptics (6 medium, mostly stale status
+  lines and missing options), 1 split, 1 refuted; and main's STATUS was stale against `docs/status`.
+- **The repo:** no open PR, every pipeline branch contained in main, and a cleanup list (merged worktrees, the four
+  empty duplicate folders, about 27 GB of old temporary test folders).
+
+**11.2 The fix round** (lab PRs #6 to #8, in that order, each from the newest main): **A** the code review's findings
+(the split ones decided from the code), four of the full chain's, the chain's scripts committed so it can be run again,
+and two of lab PR #1's logged items (above); **B** the helper also records a Claude project's id, a failed GitHub
+comment post is handled like a failed Discord post, reply files get their mode whatever the umask, the scan's last
+entity variants (the other three logged items, above), and the install script's
+two fixes of part 12 with its check of all five Keychain items; **C** every confirmed docs finding, and the lab's
+STATUS and reports from `docs/status` into main. **Running at about 07:15Z:** the final check on the final main (the
+unit suite, the smoke run in three engines, the simulated sessions and the chain again) and the cleanup.
+
+**12. The broker install, navifix's password and the Keychain helper** (the lab's report of 2026-11-23, about 22:55Z;
+every check read-only on the Mac, except the helper's write of its own Keychain item and one broker restart, in dry
+run).
+- **What the owner ran:** the install script's dry run with the merge commit pinned (`--expect 29a05e8…`), then the
+  script with sudo, twice. The owner, 22:51:37Z (its first two sentences quoted; the pasted output is not): "i messed up
+  a bit. i started the sudo run and then i typed in my password, and on stage 1, when it asked for password for
+  navifix, i thought its asking for my password again, and typed my password, and it went over to part2." The owner
+  then denied one macOS permission prompt for Terminal and stopped the run; the second run found part 1 mostly done and
+  ran parts 2 to 8.
+- **The outcome: everything in place.** Part 1: navifix exists with its own group, is not an admin, has no secure token
+  (so it cannot unlock FileVault) and is hidden. **The script summary's "part 1: NOT done" was a false alarm:** its
+  check expects the answer `IsHidden: 1`, and `dscl` answers in its native form, so the check never sees it as done.
+  Parts 2 to 8: done (the groups, the folders and modes, the folders closed to navifix, navifix in `cron.deny` and
+  `at.deny` once each, the sudo rule with `visudo -c` OK). Every installed file equals its source: the 40 loop and
+  broker files equal `29a05e8` byte for byte, the two skills equal the loadout repo's commit, the Node and Claude Code
+  copies equal theirs, and the test browsers are in place. The broker runs with the dry-run client and the merge step
+  off. The boundary: all 14 checks of 6.1 tests 1, 2 and 5 passed in the script's own check. Part 6's "terminal is not
+  fully functional" warning was git's pager in a step that clears the environment, not the denied permission; nothing
+  ended up missing.
+- **Found and handed on:** macOS, not the script, had put navifix in a File Sharing group
+  (`com.apple.sharepoint.group.1`); File Sharing is off, so it gives no access, and the owner put its removal in the
+  one sudo run (part 10.4). The script's two fixes (part 1's check reading the native form; git with no pager in part
+  6) went into lab PR #7.
+- **navifix's password** was the owner's own after the first run. The owner changed it on 2026-11-24, first to a
+  random one (`dscl`, about 04:36Z), then with `sudo passwd` to one the owner knows (about 04:40Z; the owner,
+  04:38:49Z: "how do i run that as root? this is why i want to change to password that is not the same as my actual
+  password, but something i can remember because there are occasions like these where i have to type in navifix
+  password"); macOS printed its usual warning that the tool does not change a login keychain's password. The owner,
+  04:42:58Z: "okay good. so that's done."
+- **The Keychain helper** (the owner's item 1c of part 10.1), run from lab PR #3's merged code against the lab's private
+  records: **chat ids 5, org ids 0, account ids 0; written and read back: ok** (exit 0). No private record holds an org
+  or account id, because the pipeline records shapes, never ids (none in the 1,415 files lab PR #3's dry run read). The
+  broker was restarted once to read the item; it stayed in dry run.
+
+**13. The tokens verified, and test 9 tried.**
+
+**13.1 The tokens** (the lab's report `docs/reports/2026-11-24-tokens-verified.md`, committed at 06:30:03Z; the checks
+ran in the owner's account from about 06:27 to 06:30Z by the session record; the report's header says "about
+05:25Z", which does not fit that record or the owner's request of 06:26:52Z; no token value was printed anywhere):
+- **The loops' Claude token** (a setup-token token): 108 characters, the expected prefix, no whitespace. **It works on
+  its own:** the loop's own Claude Code copy, started with an empty temporary home folder, `PATH=/usr/bin:/bin` and only
+  this token in its environment, answered the one-word prompt with "ok" (exit 0). **The control:** the same run with
+  the token's last four characters altered failed with "401 OAuth access token is invalid" (exit 1), so the answer came
+  from this token, not from the owner's own login. Not run as navifix, which needs the owner's sudo password; test 9 is
+  the check as navifix. Its creation date is recorded as 2026-11-23 (item 3), so it expires on 2027-11-23 and the
+  morning nudge warns 14 days before.
+- **The broker's GitHub token** (a fine-grained token, one year, the two repos): 93 characters, the expected prefix, no
+  whitespace. **Its expiry, as GitHub returns it: 2027-11-23 06:00:00 UTC.** Read-only calls on both repos (repository,
+  contents, pull requests, issues): 200. Not reachable, as intended: the loadout repo (404), Actions secrets and
+  repository hooks (403).
+
+| Read | public repo | private lab repo |
+|---|---|---|
+| check runs | 200 (27 runs on main, `ci-ok` success): a public repo's check runs are readable without the Checks permission | **403** (no Checks permission) |
+| Actions runs and jobs | 200 | 200 (0 runs: the lab's CI runs on the Mac, not on GitHub) |
+| commit statuses | 200 | 200 |
+| branch rules | 200 | **403** |
+
+So the code fix loop's merge step, which reads check runs and branch rules on the public repo, works with this token,
+and part 5's "whether the token can read check runs is unmeasured" is answered: yes on the public repo, no on the
+lab's. On the lab, the broker turned the 403 into an empty list, so "unreadable" looked the same as "none"; the fix (on
+a 403, read Actions runs and jobs instead and say which was used) goes into the probe PR (part 13.2). A future
+auto-merge on the lab would refuse at its unreadable branch rules (it fails closed).
+
+**13.2 Test 9 of 6.1, tried** (as navifix, through the loop's launcher `start-loop`, which needs no password; on the
+Mac at about 06:30 to 06:35Z; no AI site, no job, nothing sent; the orchestrator's chat report of 06:35Z). **Neither a
+pass nor a fail: it could not run as written.**
+- No test prompt can reach a run: the launcher accepts only the two real job kinds and gives Claude only their fixed
+  prompts, so nothing can ask the agent to run test 9's `env` and `ps` and say what it sees; a real job would be a full
+  fix run, not a test.
+- No one who holds the token could read the result: a run's output lands only in navifix's home folder, which no other
+  account can read.
+- There was no job and there were no mirrors yet, so the launcher refused at its first check, as expected.
+
+**The bug the attempt found:** the launcher's step 2 refuses to start while any other navifix process runs, a guard
+against overlapping runs. But macOS starts seven of its own per-user background services as navifix (`cfprefsd`,
+`trustd`, `lsd` and others) the first time anything runs as that user, and they stay, so **every loop run would have
+been refused** ("another navifix process runs (7)"), the first fully automatic run's included. It was found only by
+trying the real path (the orchestrator, 07:12Z).
+
+**The fix and the probe,** proposed at 06:35Z and approved by the owner at 06:53Z with the conditions of part 10.6, are
+one more lab PR, being built at about 07:15Z: the guard tells macOS's own services apart by their program's full path
+read from the kernel, inside the protected system folders (`/System`, `/usr/libexec`, `/usr/sbin`, `/usr/bin`, `/bin`,
+`/sbin`; never by name, never `/usr/local`), and anything else running as navifix still refuses the start; a test-only
+job kind `probe` with one fixed root-owned prompt holding test 9's steps, small limits and no repo access, whose every
+publishing request the broker refuses, accepted only when the 6.1 test command registered it; the token check inside
+the launcher, the only process holding the token, printing only `token: not seen` or `seen in <file>`, plus any
+denied permissions; the Actions fallback of part 13.1; and a check that every other test of 6.1 can run as written.
+Test 9 runs after the owner's word, not before. The owner's one sudo run now waits for both the updater PR and this
+one, so one run installs both (the orchestrator, 06:55Z).
+
+**14. What waits** (as of about 07:15Z on 2026-11-24; the lab's STATUS keeps the order; part 9 is kept as written).
+1. **The orchestrator:** the fix round's final check and the cleanup; the updater PR and the probe PR, each through its
+   security review and Codex until clean, merged in order; then the commit and the hashes of the install script and the
+   updater (the owner's message of 05:17Z), and of the launcher and the probe's prompt, for the owner's Claude chat to
+   read first.
+2. **The owner:** the one sudo run, about 5 minutes by the orchestrator's estimate: the install run again from the final
+   main, with the root updater (its part 9) and navifix's removal from the File Sharing group.
+3. **The orchestrator, then:** register the updater's deploy key and tell the owner its name; run the Keychain helper
+   again; restart the broker; 6.1, with test 9 only after the owner's word; and, when the Mac is quiet, the install
+   tool's two leftovers and the pre-check of all eight browsers (local pages and example.com only).
+4. **After 6.1 passes:** the switch to the real client (the lab's STATUS lists it as the owner's one line; the
+   orchestrator's chat report of 04:54Z offered to take it, with no answer from the owner recorded), then 6.2 with the
+   owner present, on a test branch and never main. 6.2 needs the real client, so it comes after the switch (the order
+   corrected at 04:45Z; part 9 had them the other way round).
+5. **The owner's go in words:** the copy session (the full 45 loads), then the first fully automatic run (part 3, item
+   6); then Phase 5 and the second automatic run.
+6. **Later:** the built-in-display fallback (part 3, item 9); the move to a dedicated Mac ("Tied to this Mac"); and,
+   before the auto-merge switch is ever turned on, the rule of part 10.1, item 4.
 
 ---
 
